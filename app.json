@@ -1,28 +1,24 @@
 {
   "expo": {
-    "name": "tcg-oracle-app",
-    "slug": "tcg-oracle-app",
+    "name": "TCG Oracle",
+    "slug": "tcg-oracle",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "tcgoracleapp",
-    "userInterfaceStyle": "automatic",
+    "scheme": "tcgoracle",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#07070d"
     },
     "ios": {
-      "supportsTablet": true
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "supportsTablet": true,
+      "bundleIdentifier": "com.theundesirables.tcgoracle",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow TCG Oracle to access your camera to scan and grade trading cards"
+      }
     },
     "web": {
       "bundler": "metro",
@@ -30,10 +26,14 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "oracleApiUrl": "https://oracle.the-undesirables.com"
     }
   }
 }

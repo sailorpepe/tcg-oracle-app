@@ -1,59 +1,79 @@
 import React from 'react';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Link, Tabs } from 'expo-router';
-import { Pressable } from 'react-native';
+import { Text, StyleSheet, Platform } from 'react-native';
+import { Tabs } from 'expo-router';
+import { useTheme } from '@/lib/ThemeContext';
 
-import Colors from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
-
-// You can explore the built-in icon families and icons on the web at https://icons.expo.fyi/
-function TabBarIcon(props: {
-  name: React.ComponentProps<typeof FontAwesome>['name'];
-  color: string;
-}) {
-  return <FontAwesome size={28} style={{ marginBottom: -3 }} {...props} />;
-}
-
+/**
+ * Tab layout — 4 tabs: INDEX · SCAN · ORACLE · VAULT
+ * Settings moved to ⚙ gear icon in screen headers.
+ * Clean Unicode glyphs, no emojis.
+ */
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const { theme } = useTheme();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        // Disable the static render of the header on web
-        // to prevent a hydration error in React Navigation v6.
-        headerShown: useClientOnlyValue(false, true),
-      }}>
+        headerShown: false,
+        tabBarActiveTintColor: theme.tabActive,
+        tabBarInactiveTintColor: theme.tabInactive,
+        tabBarStyle: {
+          backgroundColor: theme.tabBar,
+          borderTopColor: theme.tabBarBorder,
+          borderTopWidth: 1,
+          height: 80,
+          paddingBottom: 24,
+          paddingTop: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 9,
+          fontWeight: '700',
+          letterSpacing: 1.5,
+          textTransform: 'uppercase',
+        },
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Tab One',
-          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
-          headerRight: () => (
-            <Link href="/modal" asChild>
-              <Pressable>
-                {({ pressed }) => (
-                  <FontAwesome
-                    name="info-circle"
-                    size={25}
-                    color={Colors[colorScheme ?? 'light'].text}
-                    style={{ marginRight: 15, opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            </Link>
-          ),
+          title: 'Index',
+          tabBarIcon: ({ color }) => <Text style={[styles.tabIcon, { color }]}>⌕</Text>,
         }}
       />
       <Tabs.Screen
-        name="two"
+        name="grade"
         options={{
-          title: 'Tab Two',
-          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
+          title: 'Scan',
+          tabBarIcon: ({ color }) => <Text style={[styles.tabIcon, { color }]}>◎</Text>,
         }}
       />
+      <Tabs.Screen
+        name="oracle"
+        options={{
+          title: 'Oracle',
+          tabBarIcon: ({ color }) => <Text style={[styles.tabIcon, { color }]}>◈</Text>,
+        }}
+      />
+      <Tabs.Screen
+        name="vault"
+        options={{
+          title: 'Vault',
+          tabBarIcon: ({ color }) => <Text style={[styles.tabIcon, { color }]}>⬡</Text>,
+        }}
+      />
+      {/* Settings is now accessed via ⚙ gear icon in screen headers */}
+      <Tabs.Screen name="settings" options={{ href: null }} />
+      {/* Hide the old market tab file if it still exists */}
+      <Tabs.Screen name="market" options={{ href: null }} />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  tabIcon: {
+    fontSize: 18,
+    ...Platform.select({
+      web: { lineHeight: 22 },
+    }),
+  },
+});

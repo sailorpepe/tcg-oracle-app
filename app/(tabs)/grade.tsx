@@ -63,11 +63,11 @@ export default function GradeScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Pro badge */}
+          {/* Tip */}
           <View style={[styles.proBadge, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
-            <Text style={[styles.proText, { color: theme.accent }]}>◆ PRO</Text>
+            <Text style={[styles.proText, { color: theme.accent }]}>◆ TIP</Text>
             <Text style={[styles.proDesc, { color: theme.textMuted }]}>
-              Full neural grading requires Pro tier — all inference runs locally on your device
+              All card analysis runs locally on your device — zero data leaves your phone
             </Text>
           </View>
         </View>
@@ -223,10 +223,10 @@ export default function GradeScreen() {
           <ScreenTitle title="Scan" subtitle="Analysis complete" />
           {/* TODO: Show grading result here */}
           <View style={[styles.gradePlaceholder, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.gradePreview, { color: theme.accent }]}>PSA 9</Text>
-            <Text style={[styles.gradeLabel, { color: theme.textSecondary }]}>Estimated Grade</Text>
+            <Text style={[styles.gradePreview, { color: theme.accent }]}>◎</Text>
+            <Text style={[styles.gradeLabel, { color: theme.textSecondary }]}>Card Captured</Text>
             <Text style={[styles.gradeNote, { color: theme.textMuted }]}>
-              Full neural pipeline initializing in next build
+              Send this image to the Oracle for AI-powered grade prediction
             </Text>
           </View>
           <TouchableOpacity
@@ -417,7 +417,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     justifyContent: 'center',
     alignItems: 'center',
-    transition: 'all 0.2s ease' as any,
   },
   browseBtn: {
     paddingVertical: Spacing.sm,

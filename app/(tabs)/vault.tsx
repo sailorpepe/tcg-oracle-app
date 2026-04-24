@@ -162,7 +162,7 @@ export default function VaultScreen() {
               {[
                 { glyph: '⬡', label: 'Local Only', desc: 'On-device encrypted storage' },
                 { glyph: '◈', label: 'Portfolio', desc: 'Aggregate market valuation' },
-                { glyph: '▷', label: 'Alerts', desc: 'Pro tier — price triggers' },
+                { glyph: '▷', label: 'Alerts', desc: 'Price movement notifications' },
               ].map((f, i) => (
                 <View key={i} style={[styles.featureCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                   <Text style={[styles.featureGlyph, { color: theme.accent }]}>{f.glyph}</Text>

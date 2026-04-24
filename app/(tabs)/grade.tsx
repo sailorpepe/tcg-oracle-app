@@ -19,6 +19,7 @@ export default function GradeScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraReady, setCameraReady] = useState(false);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const cameraRef = useRef<CameraView>(null);
 
   const isWeb = Platform.OS === 'web';
@@ -74,7 +75,7 @@ export default function GradeScreen() {
     );
   }
 
-  // ─── Web fallback (no camera in browser) ───
+  // ─── Web: drag-and-drop + file picker ───
   if (isWeb) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -82,44 +83,131 @@ export default function GradeScreen() {
         <View style={styles.contentBox}>
           <ScreenTitle title="Scan" subtitle="Neural vision pipeline" showGear />
 
-          <View style={[styles.viewfinderBox, { borderColor: theme.border }]}>
-            <LinearGradient
-              colors={[theme.accentDim, 'transparent', theme.accentDim]}
-              style={styles.viewfinderGradient}
-            />
-
-            {/* Corner brackets */}
-            <View style={[styles.corner, styles.cornerTL, { borderColor: theme.accent }]} />
-            <View style={[styles.corner, styles.cornerTR, { borderColor: theme.accent }]} />
-            <View style={[styles.corner, styles.cornerBL, { borderColor: theme.accent }]} />
-            <View style={[styles.corner, styles.cornerBR, { borderColor: theme.accent }]} />
-
-            <View style={styles.viewfinderCenter}>
-              <Text style={styles.cameraEmoji}>◎</Text>
-              <Text style={[styles.viewfinderText, { color: theme.textSecondary }]}>
-                Sensor available on native device
-              </Text>
-              <Text style={[styles.viewfinderSubtext, { color: theme.textMuted }]}>
-                Deploy via EAS to initialize pipeline
-              </Text>
-            </View>
-          </View>
-
-          {/* Feature grid */}
-          <View style={styles.featuresGrid}>
-            {[
-              { emoji: '◈', title: 'On-Device AI', desc: 'Zero cloud dependency' },
-              { emoji: '▷', title: 'Sub-Second', desc: 'Grade prediction in <1s' },
-              { emoji: '◎', title: 'PSA · BGS · CGC', desc: 'Multi-scale prediction' },
-              { emoji: '⬡', title: 'Local Only', desc: 'No data transmitted' },
-            ].map((f, i) => (
-              <View key={i} style={[styles.featureCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <Text style={styles.featureEmoji}>{f.emoji}</Text>
-                <Text style={[styles.featureTitle, { color: theme.textPrimary }]}>{f.title}</Text>
-                <Text style={[styles.featureDesc, { color: theme.textMuted }]}>{f.desc}</Text>
+          {capturedUri ? (
+            /* ── Preview + result ── */
+            <View style={{ flex: 1 }}>
+              <View style={[styles.previewContainer, { borderColor: theme.border }]}>
+                {/* eslint-disable-next-line */}
+                <img
+                  src={capturedUri}
+                  alt="Card scan"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'contain',
+                    borderRadius: 12,
+                  } as any}
+                />
+                {/* Corner brackets on preview */}
+                <View style={[styles.corner, styles.cornerTL, { borderColor: theme.accent }]} />
+                <View style={[styles.corner, styles.cornerTR, { borderColor: theme.accent }]} />
+                <View style={[styles.corner, styles.cornerBL, { borderColor: theme.accent }]} />
+                <View style={[styles.corner, styles.cornerBR, { borderColor: theme.accent }]} />
               </View>
-            ))}
-          </View>
+
+              <View style={[styles.gradePlaceholder, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Text style={[styles.gradePreview, { color: theme.accent }]}>ANALYZING</Text>
+                <Text style={[styles.gradeLabel, { color: theme.textSecondary }]}>
+                  Card image captured — grading pipeline ready
+                </Text>
+                <Text style={[styles.gradeNote, { color: theme.textMuted }]}>
+                  Connect to the MCP server for full PSA/BGS/CGC prediction
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.retakeBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow }]}
+                onPress={resetCapture}
+              >
+                <Text style={[styles.retakeBtnText, { color: theme.accent }]}>RE-SCAN</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            /* ── Drop zone ── */
+            <View style={{ flex: 1 }}>
+              <View
+                style={[
+                  styles.dropZone,
+                  { borderColor: isDragging ? theme.accent : theme.border,
+                    backgroundColor: isDragging ? theme.accentMuted : 'transparent' },
+                ]}
+                // @ts-ignore — web-only drag events
+                onDragOver={(e: any) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
+                onDragEnter={(e: any) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={(e: any) => { e.preventDefault(); setIsDragging(false); }}
+                onDrop={(e: any) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragging(false);
+                  const file = e.dataTransfer?.files?.[0];
+                  if (file && file.type.startsWith('image/')) {
+                    if (file.size > 10 * 1024 * 1024) {
+                      alert('File too large. Max 10MB.');
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = () => setCapturedUri(reader.result as string);
+                    reader.readAsDataURL(file);
+                  }
+                }}
+              >
+                {/* Corner brackets */}
+                <View style={[styles.corner, styles.cornerTL, { borderColor: isDragging ? theme.accent : theme.border }]} />
+                <View style={[styles.corner, styles.cornerTR, { borderColor: isDragging ? theme.accent : theme.border }]} />
+                <View style={[styles.corner, styles.cornerBL, { borderColor: isDragging ? theme.accent : theme.border }]} />
+                <View style={[styles.corner, styles.cornerBR, { borderColor: isDragging ? theme.accent : theme.border }]} />
+
+                <View style={styles.viewfinderCenter}>
+                  <Text style={styles.cameraEmoji}>{isDragging ? '◉' : '◎'}</Text>
+                  <Text style={[styles.viewfinderText, { color: isDragging ? theme.accent : theme.textSecondary }]}>
+                    {isDragging ? 'Drop card image here' : 'Drag & drop a card image'}
+                  </Text>
+                  <Text style={[styles.viewfinderSubtext, { color: theme.textMuted }]}>
+                    PNG, JPG, HEIC · 10MB max
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.browseBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow }]}
+                    onPress={() => {
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = 'image/*';
+                      input.onchange = (ev: any) => {
+                        const file = ev.target?.files?.[0];
+                        if (file && file.type.startsWith('image/')) {
+                          if (file.size > 10 * 1024 * 1024) {
+                            alert('File too large. Max 10MB.');
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = () => setCapturedUri(reader.result as string);
+                          reader.readAsDataURL(file);
+                        }
+                      };
+                      input.click();
+                    }}
+                  >
+                    <Text style={[styles.browseBtnText, { color: theme.accent }]}>BROWSE FILES</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Feature grid */}
+              <View style={styles.featuresGrid}>
+                {[
+                  { emoji: '◈', title: 'On-Device AI', desc: 'Zero cloud dependency' },
+                  { emoji: '▷', title: 'Sub-Second', desc: 'Grade prediction in <1s' },
+                  { emoji: '◎', title: 'PSA · BGS · CGC', desc: 'Multi-scale prediction' },
+                  { emoji: '⬡', title: 'Local Only', desc: 'No data transmitted' },
+                ].map((f, i) => (
+                  <View key={i} style={[styles.featureCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    <Text style={styles.featureEmoji}>{f.emoji}</Text>
+                    <Text style={[styles.featureTitle, { color: theme.textPrimary }]}>{f.title}</Text>
+                    <Text style={[styles.featureDesc, { color: theme.textMuted }]}>{f.desc}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
       </SafeAreaView>
     );
@@ -318,4 +406,33 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xl,
   },
   retakeBtnText: { fontSize: FontSizes.md, fontWeight: '700' },
+
+  // Web drop zone
+  dropZone: {
+    height: 300,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 2,
+    borderStyle: 'dashed' as any,
+    marginTop: Spacing.xl,
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+    transition: 'all 0.2s ease' as any,
+  },
+  browseBtn: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    marginTop: Spacing.lg,
+  },
+  browseBtnText: { fontSize: FontSizes.sm, fontWeight: '700' },
+  previewContainer: {
+    height: 320,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    marginTop: Spacing.xl,
+    overflow: 'hidden',
+    position: 'relative',
+  },
 });

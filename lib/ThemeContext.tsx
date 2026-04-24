@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { themes, themeMetadata, defaultTheme, ThemeName, ThemeColors } from '@/constants/Themes';
+import { WallpaperState, getWallpaper, saveWallpaper as saveWallpaperStorage, clearWallpaper as clearWallpaperStorage, BorderEffect } from '@/lib/wallpaper';
 
 const THEME_KEY = '@tcg_oracle_theme';
 
@@ -9,6 +10,9 @@ interface ThemeContextValue {
   themeName: ThemeName;
   setTheme: (name: ThemeName) => void;
   allThemes: typeof themeMetadata;
+  wallpaper: WallpaperState;
+  setWallpaper: (state: Partial<WallpaperState>) => void;
+  clearWallpaper: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
@@ -16,23 +20,40 @@ const ThemeContext = createContext<ThemeContextValue>({
   themeName: defaultTheme,
   setTheme: () => {},
   allThemes: themeMetadata,
+  wallpaper: { uri: null, borderEffect: 'none', opacity: 0.25 },
+  setWallpaper: () => {},
+  clearWallpaper: () => {},
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [themeName, setThemeName] = useState<ThemeName>(defaultTheme);
+  const [wallpaper, setWallpaperState] = useState<WallpaperState>({
+    uri: null, borderEffect: 'none', opacity: 0.25,
+  });
 
-  // Load saved theme on mount
+  // Load saved theme + wallpaper on mount
   useEffect(() => {
     AsyncStorage.getItem(THEME_KEY).then(saved => {
       if (saved && saved in themes) {
         setThemeName(saved as ThemeName);
       }
     });
+    getWallpaper().then(wp => setWallpaperState(wp));
   }, []);
 
   const setTheme = useCallback((name: ThemeName) => {
     setThemeName(name);
     AsyncStorage.setItem(THEME_KEY, name);
+  }, []);
+
+  const setWallpaper = useCallback(async (update: Partial<WallpaperState>) => {
+    const merged = await saveWallpaperStorage(update);
+    setWallpaperState(merged);
+  }, []);
+
+  const clearWallpaper = useCallback(async () => {
+    await clearWallpaperStorage();
+    setWallpaperState({ uri: null, borderEffect: 'none', opacity: 0.25 });
   }, []);
 
   return (
@@ -42,6 +63,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         themeName,
         setTheme,
         allThemes: themeMetadata,
+        wallpaper,
+        setWallpaper,
+        clearWallpaper,
       }}
     >
       {children}
@@ -53,7 +77,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
  * Hook to access the current theme
  *
  * Usage:
- *   const { theme, themeName, setTheme, allThemes } = useTheme();
+ *   const { theme, themeName, setTheme, allThemes, wallpaper } = useTheme();
  *   <View style={{ backgroundColor: theme.background }}>
  */
 export function useTheme() {

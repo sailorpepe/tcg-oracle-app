@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,18 +8,58 @@ import {
   TouchableOpacity,
   Linking,
   ScrollView,
+  Image,
+  Platform,
+  Alert,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/lib/ThemeContext';
 import { ThemeName } from '@/constants/Themes';
 import { Spacing, FontSizes, BorderRadius } from '@/constants/Theme';
+import { BORDER_EFFECTS, BorderEffect } from '@/lib/wallpaper';
 import ScreenTitle from '@/components/ScreenTitle';
+import WallpaperBackground from '@/components/WallpaperBackground';
 
 export default function SettingsScreen() {
-  const { theme, themeName, setTheme, allThemes } = useTheme();
+  const { theme, themeName, setTheme, allThemes, wallpaper, setWallpaper, clearWallpaper } = useTheme();
+
+  const pickImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.6,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        // Use base64 data URI for cross-platform storage
+        const uri = asset.base64
+          ? `data:image/jpeg;base64,${asset.base64}`
+          : asset.uri;
+        setWallpaper({ uri });
+      }
+    } catch (e) {
+      console.warn('Image picker error:', e);
+    }
+  };
+
+  const handleClearWallpaper = () => {
+    if (Platform.OS === 'web') {
+      if (confirm('Remove background wallpaper?')) clearWallpaper();
+    } else {
+      Alert.alert('Remove Wallpaper', 'Reset to default background?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: clearWallpaper },
+      ]);
+    }
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar barStyle={theme.statusBar} />
+      <WallpaperBackground />
       <ScrollView contentContainerStyle={styles.content}>
         <ScreenTitle title="Settings" subtitle="System configuration" />
 
@@ -60,33 +100,78 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* ── AI Model ── */}
+        {/* ── Wallpaper ── */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>AI Model</Text>
-          <TouchableOpacity style={[styles.row, { borderBottomColor: theme.border }]}>
-            <View>
-              <Text style={[styles.rowText, { color: theme.textPrimary }]}>Local AI Model</Text>
-              <Text style={[styles.rowHint, { color: theme.textMuted }]}>
-                Offline grading — runs on your device
-              </Text>
-            </View>
-            <View style={[styles.proBadge, { backgroundColor: theme.accentMuted }]}>
-              <Text style={[styles.proBadgeText, { color: theme.accent }]}>PRO</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
+          <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>Wallpaper</Text>
+          <Text style={[styles.sectionHint, { color: theme.textDim }]}>
+            Set any photo, NFT, or card as your background
+          </Text>
 
-        {/* ── Subscription ── */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>Subscription</Text>
-          <TouchableOpacity style={[styles.row, { borderBottomColor: theme.border }]}>
-            <Text style={[styles.rowText, { color: theme.textPrimary }]}>Restore Purchases</Text>
-            <Text style={[styles.rowArrow, { color: theme.textMuted }]}>→</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.row, { borderBottomColor: theme.border }]}>
-            <Text style={[styles.rowText, { color: theme.textPrimary }]}>Manage Subscription</Text>
-            <Text style={[styles.rowArrow, { color: theme.textMuted }]}>→</Text>
-          </TouchableOpacity>
+          <View style={styles.wallpaperRow}>
+            {/* Preview / Pick button */}
+            <TouchableOpacity
+              style={[styles.wallpaperPreview, { backgroundColor: theme.surface, borderColor: theme.border }]}
+              onPress={pickImage}
+              activeOpacity={0.7}
+            >
+              {wallpaper.uri ? (
+                <Image source={{ uri: wallpaper.uri }} style={styles.wallpaperImage} resizeMode="cover" />
+              ) : (
+                <View style={styles.wallpaperEmpty}>
+                  <Text style={[styles.wallpaperEmptyIcon, { color: theme.textDim }]}>＋</Text>
+                  <Text style={[styles.wallpaperEmptyText, { color: theme.textMuted }]}>Choose Image</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {/* Actions */}
+            <View style={styles.wallpaperActions}>
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow }]}
+                onPress={pickImage}
+              >
+                <Text style={[styles.actionBtnText, { color: theme.accent }]}>
+                  {wallpaper.uri ? 'CHANGE' : 'BROWSE'}
+                </Text>
+              </TouchableOpacity>
+              {wallpaper.uri && (
+                <TouchableOpacity
+                  style={[styles.actionBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleClearWallpaper}
+                >
+                  <Text style={[styles.actionBtnText, { color: theme.textMuted }]}>REMOVE</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* Border Effects */}
+          <Text style={[styles.subsectionTitle, { color: theme.textMuted }]}>Border Effect</Text>
+          <View style={styles.effectGrid}>
+            {BORDER_EFFECTS.map(effect => {
+              const isActive = wallpaper.borderEffect === effect.id;
+              return (
+                <TouchableOpacity
+                  key={effect.id}
+                  style={[
+                    styles.effectCard,
+                    { backgroundColor: theme.surface, borderColor: theme.border },
+                    isActive && { borderColor: theme.accent, backgroundColor: theme.accentDim },
+                  ]}
+                  onPress={() => setWallpaper({ borderEffect: effect.id })}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.effectEmoji}>{effect.emoji}</Text>
+                  <Text style={[
+                    styles.effectLabel,
+                    { color: isActive ? theme.accent : theme.textPrimary },
+                  ]}>
+                    {effect.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
         {/* ── About ── */}
@@ -161,11 +246,6 @@ const styles = StyleSheet.create({
     padding: Spacing.xl,
     paddingBottom: 40,
   },
-  title: {
-    fontSize: FontSizes.xxl,
-    fontWeight: '900',
-    marginBottom: Spacing.xxl,
-  },
 
   // Sections
   section: {
@@ -176,6 +256,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1.5,
+    marginBottom: Spacing.sm,
+  },
+  sectionHint: {
+    fontSize: FontSizes.xs,
+    marginBottom: Spacing.md,
+  },
+  subsectionTitle: {
+    fontSize: FontSizes.xs,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    marginTop: Spacing.lg,
     marginBottom: Spacing.sm,
   },
 
@@ -215,6 +307,77 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
 
+  // Wallpaper
+  wallpaperRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    alignItems: 'flex-start',
+  },
+  wallpaperPreview: {
+    width: 100,
+    height: 140,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1.5,
+    overflow: 'hidden',
+  },
+  wallpaperImage: {
+    width: '100%',
+    height: '100%',
+  },
+  wallpaperEmpty: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
+  wallpaperEmptyIcon: {
+    fontSize: 28,
+    fontWeight: '200',
+  },
+  wallpaperEmptyText: {
+    fontSize: FontSizes.xs,
+    fontWeight: '600',
+  },
+  wallpaperActions: {
+    flex: 1,
+    gap: Spacing.sm,
+  },
+  actionBtn: {
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  actionBtnText: {
+    fontSize: FontSizes.xs,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+
+  // Border effects
+  effectGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  effectCard: {
+    width: '18%',
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    gap: 2,
+  },
+  effectEmoji: {
+    fontSize: 18,
+  },
+  effectLabel: {
+    fontSize: 8,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+
   // Rows
   row: {
     flexDirection: 'row',
@@ -226,26 +389,11 @@ const styles = StyleSheet.create({
   rowText: {
     fontSize: FontSizes.md,
   },
-  rowHint: {
-    fontSize: FontSizes.xs,
-    marginTop: 2,
-  },
   rowValue: {
     fontSize: FontSizes.md,
   },
   rowArrow: {
     fontSize: FontSizes.md,
-  },
-
-  // Pro badge
-  proBadge: {
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: BorderRadius.sm,
-  },
-  proBadgeText: {
-    fontSize: FontSizes.xs,
-    fontWeight: '800',
   },
 
   // Footer

@@ -1,0 +1,48 @@
+/**
+ * TCG Oracle — Context Builder
+ * Builds the system prompt with the user's Vault data injected.
+ * All data is sanitized before injection.
+ */
+
+import { getVault } from '@/lib/vault';
+import { Card } from '@/lib/api';
+
+const MAX_CONTEXT_CARDS = 20;
+
+/** Sanitize card data to prevent prompt injection */
+function sanitize(text: string): string {
+  return text
+    .substring(0, 200)                      // hard length cap FIRST (prevents ReDoS)
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, '')  // strip control characters
+    .replace(/<[^>]*>/g, '')                // strip HTML tags
+    .replace(/[<>"'`]/g, '');               // strip dangerous chars
+}
+
+function formatCard(card: Card): string {
+  const parts = [
+    `- ${sanitize(card.name)}`,
+    card.game ? `(${card.game})` : '',
+    card.set ? `[${sanitize(card.set)}]` : '',
+    card.rarity ? `${card.rarity}` : '',
+    card.price ? `$${card.price.toFixed(2)}` : '',
+  ];
+  return parts.filter(Boolean).join(' ');
+}
+
+export async function buildSystemPrompt(): Promise<string> {
+  const vault = await getVault();
+  const totalValue = vault.reduce((sum, c) => sum + (c.price || 0), 0);
+
+  let vaultContext = '';
+  if (vault.length > 0) {
+    const displayCards = vault.slice(0, MAX_CONTEXT_CARDS);
+    vaultContext = `
+VAULT PORTFOLIO (${vault.length} cards, estimated value $${totalValue.toFixed(2)}):
+${displayCards.map(formatCard).join('\n')}
+${vault.length > MAX_CONTEXT_CARDS ? `\n... and ${vault.length - MAX_CONTEXT_CARDS} more cards` : ''}`;
+  } else {
+    vaultContext = '\nVAULT: Empty — no cards saved yet.';
+  }
+
+  return `You are Oracle, a TCG market analyst (Pokémon, Magic, Yu-Gi-Oh!, One Piece). Be concise and direct. Keep responses under 150 words.${vaultContext}`;
+}

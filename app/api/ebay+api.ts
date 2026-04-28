@@ -1,16 +1,49 @@
+// ── eBay Browse API Proxy ──
+// Default: uses server-side env credentials (zero friction for users)
+// Override: accepts BYOK appId/secret from the client for power users
+
+// In-memory cache: key → { data, timestamp }
+const cache = new Map<string, { data: any; ts: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { appId, secret, query, isTrending, setName, cardNumber } = body;
+    const { query, isTrending, setName, cardNumber } = body;
+    
+    // BYOK override — if client sends credentials, use those instead
+    let appId = body.appId || process.env.EBAY_APP_ID || '';
+    let secret = body.secret || process.env.EBAY_CLIENT_SECRET || '';
 
-    if (!appId || !secret || !query) {
-      return new Response(JSON.stringify({ error: "Missing required fields" }), {
+    if (!appId || !secret) {
+      return new Response(JSON.stringify({ 
+        error: "eBay API not configured. Set EBAY_APP_ID and EBAY_CLIENT_SECRET in environment, or provide your own keys in Settings." 
+      }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!query) {
+      return new Response(JSON.stringify({ error: "Missing query parameter" }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    // 1. Get OAuth Token (server-side — no CORS restrictions)
+    // ── Cache Check ──
+    const limit = isTrending ? 10 : 50;
+    const cacheKey = `${query}|${setName || ''}|${cardNumber || ''}|${isTrending ? 't' : 'f'}`;
+    
+    const cached = cache.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < CACHE_TTL) {
+      return new Response(JSON.stringify({ ...cached.data, _cached: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── OAuth Token ──
     const authString = Buffer.from(`${appId}:${secret}`).toString('base64');
 
     const tokenRes = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
@@ -23,8 +56,7 @@ export async function POST(request: Request) {
     });
 
     if (!tokenRes.ok) {
-      const errText = await tokenRes.text();
-      return new Response(JSON.stringify({ error: "eBay authentication failed. Check your App ID and Secret in Settings." }), {
+      return new Response(JSON.stringify({ error: "eBay authentication failed. Check API credentials." }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -33,21 +65,18 @@ export async function POST(request: Request) {
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.access_token;
 
-    // 2. Search eBay Browse API
-    const limit = isTrending ? 10 : 50;
-    
-    // Build precision query using collector number + set name when available
+    // ── Build Search Query ──
     let searchQuery = query;
-    if (setName && cardNumber) {
-      // e.g. "Mega Charizard X ex" "Phantasmal Flames" 13 -sealed -lot -bundle -repack -case
-      searchQuery = `${query} "${setName}" ${cardNumber} -sealed -lot -bundle -repack -case -booster`;
-    } else if (setName) {
-      searchQuery = `${query} "${setName}" -sealed -lot -bundle -repack -case -booster`;
-    } else {
-      searchQuery = `${query} -sealed -lot -bundle -repack -case -booster`;
+    if (!isTrending) {
+      if (setName && cardNumber) {
+        searchQuery = `${query} "${setName}" ${cardNumber} -sealed -lot -bundle -repack -case -booster`;
+      } else if (setName) {
+        searchQuery = `${query} "${setName}" -sealed -lot -bundle -repack -case -booster`;
+      } else {
+        searchQuery = `${query} -sealed -lot -bundle -repack -case -booster`;
+      }
     }
-    
-    // Use relevance sort (NOT sort=-price which only returns the most expensive listings)
+
     const browseUrl = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(searchQuery)}&limit=${limit}`;
 
     const browseRes = await fetch(browseUrl, {
@@ -59,7 +88,6 @@ export async function POST(request: Request) {
     });
 
     if (!browseRes.ok) {
-      const errText = await browseRes.text();
       return new Response(JSON.stringify({ error: "eBay search returned no results or failed. Try a different query." }), {
         status: browseRes.status,
         headers: { 'Content-Type': 'application/json' },
@@ -67,6 +95,18 @@ export async function POST(request: Request) {
     }
 
     const data = await browseRes.json();
+    
+    // ── Cache Store ──
+    cache.set(cacheKey, { data, ts: Date.now() });
+    
+    // Evict old entries if cache gets too large (> 200 entries)
+    if (cache.size > 200) {
+      const oldest = [...cache.entries()].sort((a, b) => a[1].ts - b[1].ts);
+      for (let i = 0; i < 50; i++) {
+        cache.delete(oldest[i][0]);
+      }
+    }
+
     return new Response(JSON.stringify(data), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

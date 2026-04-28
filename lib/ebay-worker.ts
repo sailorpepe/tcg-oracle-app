@@ -30,10 +30,11 @@ export interface CLResult {
 }
 
 export async function executeEbayFetch(
-    appId: string, secret: string, query: string, 
+    appId?: string | null, secret?: string | null, query?: string, 
     isTrending: boolean = false,
     setName?: string, cardNumber?: string
 ): Promise<any> {
+    if (!query) return { itemSummaries: [] };
     let data: any;
 
     // Build precision query for native path
@@ -47,10 +48,18 @@ export async function executeEbayFetch(
     };
 
     if (Platform.OS === 'web') {
+        // Server-side proxy handles auth via env vars by default
+        // BYOK credentials are forwarded as optional override
+        const payload: any = { query, isTrending, setName, cardNumber };
+        if (appId && secret) {
+            payload.appId = appId;
+            payload.secret = secret;
+        }
+        
         const response = await fetch('/api/ebay', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ appId, secret, query, isTrending, setName, cardNumber })
+            body: JSON.stringify(payload)
         });
         
         if (!response.ok) {

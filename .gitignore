@@ -43,3 +43,7 @@ yarn-error.*
 # Dev test scripts
 test-*.js
 local-cors-proxy.js
+
+# Environment secrets
+.env
+.env.local

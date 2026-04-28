@@ -7,6 +7,8 @@ import {
   StatusBar,
   TouchableOpacity,
   Platform,
+  ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,6 +16,18 @@ import { useTheme } from '@/lib/ThemeContext';
 import { Spacing, FontSizes, BorderRadius } from '@/constants/Theme';
 import ScreenTitle from '@/components/ScreenTitle';
 import WallpaperBackground from '@/components/WallpaperBackground';
+import { analyzeCardImage } from '@/lib/inference/card-grader';
+
+// File extension allowlist for drag-and-drop (browsers may not set MIME for HEIC/HEIF)
+const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.bmp', '.gif', '.avif'];
+
+function isAllowedImageFile(file: File): boolean {
+  // Check MIME type first
+  if (file.type && file.type.startsWith('image/')) return true;
+  // Fallback: check extension (handles HEIC on browsers that report empty MIME)
+  const name = file.name.toLowerCase();
+  return ALLOWED_IMAGE_EXTENSIONS.some(ext => name.endsWith(ext));
+}
 
 export default function GradeScreen() {
   const { theme } = useTheme();
@@ -23,6 +37,11 @@ export default function GradeScreen() {
   const [isDragging, setIsDragging] = useState(false);
   const cameraRef = useRef<CameraView>(null);
 
+  // Grading analysis state
+  const [analysisText, setAnalysisText] = useState('');
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
+
   const isWeb = Platform.OS === 'web';
 
   const handleCapture = async () => {
@@ -31,13 +50,126 @@ export default function GradeScreen() {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
       if (photo?.uri) {
         setCapturedUri(photo.uri);
+        runGradingAnalysis(photo.uri);
       }
     } catch (e) {
       console.warn('Capture failed:', e);
     }
   };
 
-  const resetCapture = () => setCapturedUri(null);
+  const resetCapture = () => {
+    setCapturedUri(null);
+    setAnalysisText('');
+    setAnalysisError('');
+    setAnalysisLoading(false);
+  };
+
+  /** Run AI-powered grading analysis on the captured image */
+  const runGradingAnalysis = async (imageUri: string) => {
+    setAnalysisText('');
+    setAnalysisError('');
+    setAnalysisLoading(true);
+
+    try {
+      await analyzeCardImage(imageUri, (token) => {
+        setAnalysisText(prev => prev + token);
+      });
+    } catch (e: any) {
+      if (e.message === 'NO_ENGINE') {
+        setAnalysisError('NO_ENGINE');
+      } else {
+        setAnalysisError(e.message || 'Analysis failed');
+      }
+    }
+    setAnalysisLoading(false);
+  };
+
+  /** Handle file selection from both drag-drop and file picker */
+  const handleFileSelected = (file: File) => {
+    if (!isAllowedImageFile(file)) {
+      alert('Please upload an image file (JPG, PNG, HEIC, WebP).');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File too large. Max 10MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUri = reader.result as string;
+      setCapturedUri(dataUri);
+      runGradingAnalysis(dataUri);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // ─── Render Analysis Result ───
+  const renderAnalysisResult = () => {
+    if (analysisLoading && !analysisText) {
+      return (
+        <View style={[styles.analysisBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <ActivityIndicator size="large" color={theme.accent} />
+          <Text style={[styles.analysisLoadingText, { color: theme.textMuted }]}>
+            Analyzing card condition...
+          </Text>
+          <Text style={[styles.analysisSubtext, { color: theme.textDim }]}>
+            Vision AI is evaluating centering, corners, edges, and surface
+          </Text>
+        </View>
+      );
+    }
+
+    if (analysisError === 'NO_ENGINE') {
+      return (
+        <View style={[styles.analysisBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Text style={styles.noEngineEmoji}>◈</Text>
+          <Text style={[styles.noEngineTitle, { color: theme.textPrimary }]}>
+            AI Engine Required
+          </Text>
+          <Text style={[styles.noEngineDesc, { color: theme.textMuted }]}>
+            To analyze card condition, connect an AI engine in the Oracle tab. Supported engines with vision:
+          </Text>
+          <View style={styles.engineList}>
+            <Text style={[styles.engineItem, { color: theme.accent }]}>◆ Anthropic (Claude) — Best accuracy</Text>
+            <Text style={[styles.engineItem, { color: theme.textSecondary }]}>◆ Groq — Free, fast vision</Text>
+            <Text style={[styles.engineItem, { color: theme.textSecondary }]}>◆ Ollama (llava) — Fully local</Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (analysisError) {
+      return (
+        <View style={[styles.analysisBox, { backgroundColor: theme.surface, borderColor: '#f87171' }]}>
+          <Text style={[styles.analysisErrorText, { color: '#f87171' }]}>
+            ⚠ {analysisError}
+          </Text>
+          <TouchableOpacity
+            style={[styles.retryBtn, { borderColor: theme.border }]}
+            onPress={() => capturedUri && runGradingAnalysis(capturedUri)}
+          >
+            <Text style={[styles.retryBtnText, { color: theme.accent }]}>RETRY ANALYSIS</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (analysisText) {
+      return (
+        <ScrollView style={[styles.analysisBox, { backgroundColor: theme.surface, borderColor: theme.border, maxHeight: 400 }]}>
+          <Text style={[styles.analysisHeader, { color: theme.accent }]}>◈ GRADING ANALYSIS</Text>
+          <Text style={[styles.analysisContent, { color: theme.textPrimary }]}>
+            {analysisText}
+          </Text>
+          {analysisLoading && (
+            <ActivityIndicator size="small" color={theme.accent} style={{ marginTop: Spacing.sm }} />
+          )}
+        </ScrollView>
+      );
+    }
+
+    return null;
+  };
 
   // ─── Permission not granted yet ───
   if (!isWeb && permission && !permission.granted) {
@@ -83,12 +215,12 @@ export default function GradeScreen() {
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
         <WallpaperBackground />
         <StatusBar barStyle={theme.statusBar} />
-        <View style={styles.contentBox}>
+        <ScrollView style={styles.contentBox} contentContainerStyle={{ paddingBottom: 40 }}>
           <ScreenTitle title="Scan" subtitle="Neural vision pipeline" showGear />
 
           {capturedUri ? (
-            /* ── Preview + result ── */
-            <View style={{ flex: 1 }}>
+            /* ── Preview + Analysis Result ── */
+            <View>
               <View style={[styles.previewContainer, { borderColor: theme.border }]}>
                 {/* eslint-disable-next-line */}
                 <img
@@ -108,15 +240,8 @@ export default function GradeScreen() {
                 <View style={[styles.corner, styles.cornerBR, { borderColor: theme.accent }]} />
               </View>
 
-              <View style={[styles.gradePlaceholder, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <Text style={[styles.gradePreview, { color: theme.accent }]}>ANALYZING</Text>
-                <Text style={[styles.gradeLabel, { color: theme.textSecondary }]}>
-                  Card image captured — grading pipeline ready
-                </Text>
-                <Text style={[styles.gradeNote, { color: theme.textMuted }]}>
-                  Connect to the MCP server for full PSA/BGS/CGC prediction
-                </Text>
-              </View>
+              {/* Analysis result or loading state */}
+              {renderAnalysisResult()}
 
               <TouchableOpacity
                 style={[styles.retakeBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow }]}
@@ -127,7 +252,7 @@ export default function GradeScreen() {
             </View>
           ) : (
             /* ── Drop zone ── */
-            <View style={{ flex: 1 }}>
+            <View>
               <View
                 style={[
                   styles.dropZone,
@@ -143,15 +268,7 @@ export default function GradeScreen() {
                   e.stopPropagation();
                   setIsDragging(false);
                   const file = e.dataTransfer?.files?.[0];
-                  if (file && file.type.startsWith('image/')) {
-                    if (file.size > 10 * 1024 * 1024) {
-                      alert('File too large. Max 10MB.');
-                      return;
-                    }
-                    const reader = new FileReader();
-                    reader.onload = () => setCapturedUri(reader.result as string);
-                    reader.readAsDataURL(file);
-                  }
+                  if (file) handleFileSelected(file);
                 }}
               >
                 {/* Corner brackets */}
@@ -166,25 +283,17 @@ export default function GradeScreen() {
                     {isDragging ? 'Drop card image here' : 'Drag & drop a card image'}
                   </Text>
                   <Text style={[styles.viewfinderSubtext, { color: theme.textMuted }]}>
-                    PNG, JPG, HEIC · 10MB max
+                    PNG, JPG, HEIC, WebP · 10MB max
                   </Text>
                   <TouchableOpacity
                     style={[styles.browseBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow }]}
                     onPress={() => {
                       const input = document.createElement('input');
                       input.type = 'file';
-                      input.accept = 'image/*';
+                      input.accept = 'image/*,.heic,.heif';
                       input.onchange = (ev: any) => {
                         const file = ev.target?.files?.[0];
-                        if (file && file.type.startsWith('image/')) {
-                          if (file.size > 10 * 1024 * 1024) {
-                            alert('File too large. Max 10MB.');
-                            return;
-                          }
-                          const reader = new FileReader();
-                          reader.onload = () => setCapturedUri(reader.result as string);
-                          reader.readAsDataURL(file);
-                        }
+                        if (file) handleFileSelected(file);
                       };
                       input.click();
                     }}
@@ -197,10 +306,10 @@ export default function GradeScreen() {
               {/* Feature grid */}
               <View style={styles.featuresGrid}>
                 {[
-                  { emoji: '◈', title: 'On-Device AI', desc: 'Zero cloud dependency' },
-                  { emoji: '▷', title: 'Sub-Second', desc: 'Grade prediction in <1s' },
+                  { emoji: '◈', title: 'Vision AI', desc: 'Multimodal card analysis' },
+                  { emoji: '▷', title: 'Streaming', desc: 'Results appear in real-time' },
                   { emoji: '◎', title: 'PSA · BGS · CGC', desc: 'Multi-scale prediction' },
-                  { emoji: '⬡', title: 'Local Only', desc: 'No data transmitted' },
+                  { emoji: '⬡', title: 'BYOK Powered', desc: 'Your key, your choice' },
                 ].map((f, i) => (
                   <View key={i} style={[styles.featureCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                     <Text style={styles.featureEmoji}>{f.emoji}</Text>
@@ -211,7 +320,7 @@ export default function GradeScreen() {
               </View>
             </View>
           )}
-        </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -223,23 +332,19 @@ export default function GradeScreen() {
       <StatusBar barStyle="light-content" />
 
       {capturedUri ? (
-        <View style={styles.resultBox}>
+        <ScrollView style={styles.resultBox} contentContainerStyle={{ paddingBottom: 40 }}>
           <ScreenTitle title="Scan" subtitle="Analysis complete" />
-          {/* TODO: Show grading result here */}
-          <View style={[styles.gradePlaceholder, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.gradePreview, { color: theme.accent }]}>◎</Text>
-            <Text style={[styles.gradeLabel, { color: theme.textSecondary }]}>Card Captured</Text>
-            <Text style={[styles.gradeNote, { color: theme.textMuted }]}>
-              Send this image to the Oracle for AI-powered grade prediction
-            </Text>
-          </View>
+
+          {/* Analysis result */}
+          {renderAnalysisResult()}
+
           <TouchableOpacity
             style={[styles.retakeBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow }]}
             onPress={resetCapture}
           >
             <Text style={[styles.retakeBtnText, { color: theme.accent }]}>RE-SCAN</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
       ) : (
         <View style={styles.cameraContainer}>
           <CameraView
@@ -308,24 +413,10 @@ const styles = StyleSheet.create({
   proText: { fontSize: FontSizes.sm, fontWeight: '800' },
   proDesc: { flex: 1, fontSize: FontSizes.xs, lineHeight: 16 },
 
-  // Content (web fallback)
+  // Content (web)
   contentBox: { flex: 1, padding: Spacing.xl },
 
   // Viewfinder
-  viewfinderBox: {
-    height: 300,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    marginTop: Spacing.xl,
-    overflow: 'hidden',
-    position: 'relative',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  viewfinderGradient: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.3,
-  },
   viewfinderCenter: { alignItems: 'center', gap: Spacing.sm, zIndex: 1 },
   cameraEmoji: { fontSize: 48 },
   viewfinderText: { fontSize: FontSizes.md, fontWeight: '600' },
@@ -391,25 +482,6 @@ const styles = StyleSheet.create({
 
   // Result screen
   resultBox: { flex: 1, padding: Spacing.xl },
-  gradePlaceholder: {
-    padding: Spacing.xxxl,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    alignItems: 'center',
-    gap: Spacing.md,
-    marginTop: Spacing.xl,
-  },
-  gradePreview: { fontSize: 48, fontWeight: '900' },
-  gradeLabel: { fontSize: FontSizes.md, fontWeight: '600' },
-  gradeNote: { fontSize: FontSizes.xs, textAlign: 'center' },
-  retakeBtn: {
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    alignItems: 'center',
-    marginTop: Spacing.xl,
-  },
-  retakeBtnText: { fontSize: FontSizes.md, fontWeight: '700' },
 
   // Web drop zone
   dropZone: {
@@ -438,4 +510,64 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
   },
+  retakeBtn: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    alignItems: 'center',
+    marginTop: Spacing.xl,
+  },
+  retakeBtnText: { fontSize: FontSizes.md, fontWeight: '700' },
+
+  // Analysis result
+  analysisBox: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    marginTop: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  analysisHeader: {
+    fontSize: FontSizes.xs,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginBottom: Spacing.sm,
+  },
+  analysisContent: {
+    fontSize: FontSizes.sm,
+    lineHeight: 22,
+    fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
+  },
+  analysisLoadingText: {
+    fontSize: FontSizes.md,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  analysisSubtext: {
+    fontSize: FontSizes.xs,
+    textAlign: 'center',
+  },
+  analysisErrorText: {
+    fontSize: FontSizes.sm,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+
+  // No engine state
+  noEngineEmoji: { fontSize: 40, textAlign: 'center' },
+  noEngineTitle: { fontSize: FontSizes.lg, fontWeight: '800', textAlign: 'center' },
+  noEngineDesc: { fontSize: FontSizes.sm, textAlign: 'center', lineHeight: 20 },
+  engineList: { gap: 6, marginTop: Spacing.sm },
+  engineItem: { fontSize: FontSizes.xs, fontWeight: '600' },
+
+  // Retry button
+  retryBtn: {
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    marginTop: Spacing.sm,
+  },
+  retryBtnText: { fontSize: FontSizes.sm, fontWeight: '700' },
 });

@@ -228,11 +228,11 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* ── eBay BYOK Settings ── */}
+        {/* ── eBay BYOK Settings (Optional Power User Feature) ── */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>eBay Integration (BYOK)</Text>
+          <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>eBay Integration (Advanced)</Text>
           <Text style={[styles.sectionHint, { color: theme.textDim }]}>
-            Connect your developer keys for real-time market comps. Keys are encrypted locally using AES-GCM and never leave this device.
+            eBay market comps work out of the box — no setup needed. If you want dedicated API access with your own rate limits, you can optionally connect your own developer keys below.
           </Text>
 
           {hasKeys ? (

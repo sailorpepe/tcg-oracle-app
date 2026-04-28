@@ -57,12 +57,16 @@ export default function IndexScreen() {
   const [clResult, setClResult] = useState<any>(null);
   const [compsLoading, setCompsLoading] = useState(false);
   const [compsError, setCompsError] = useState('');
-  const [showSetupBanner, setShowSetupBanner] = useState(false);
 
-  // Check if eBay keys exist on mount
-  useEffect(() => {
-    hasSecureCredentials().then(has => setShowSetupBanner(!has));
-  }, []);
+  // Helper: get BYOK credentials if user has set them up (optional override)
+  const getBYOKCredentials = async (): Promise<{appId: string, secret: string} | null> => {
+    try {
+      const has = await hasSecureCredentials();
+      if (!has) return null;
+      const pin = getSessionPin();
+      return await decryptEbayCredentials(pin);
+    } catch { return null; }
+  };
 
   // Search state (merged from Market)
   const [query, setQuery] = useState('');
@@ -106,27 +110,23 @@ export default function IndexScreen() {
     try {
       const sig = SIGNATURE_QUERIES[filter];
       if (filter === 'ebay') {
-        const pin = getSessionPin();
-        const creds = await decryptEbayCredentials(pin);
-        if (creds) {
-          const ebayData = await executeEbayFetch(creds.appId, creds.secret, sig.term, true);
-          if (ebayData && ebayData.itemSummaries) {
-             const ebayCards = ebayData.itemSummaries.map((item: any) => ({
-                 id: item.itemId,
-                 name: item.title,
-                 imageUrl: item.image?.imageUrl || '',
-                 imageUrlSmall: item.image?.imageUrl || '',
-                 set: 'eBay',
-                 price: parseFloat(item.price?.value || '0'),
-                 priceSource: 'eBay',
-                 game: 'ebay' as GameId,
-             }));
-             setTrendingCards(ebayCards.slice(0, 8));
-          } else {
-             setTrendingCards([]);
-          }
+        // Use BYOK if available, otherwise proxy handles it server-side
+        const creds = await getBYOKCredentials();
+        const ebayData = await executeEbayFetch(creds?.appId, creds?.secret, sig.term, true);
+        if (ebayData && ebayData.itemSummaries) {
+           const ebayCards = ebayData.itemSummaries.map((item: any) => ({
+               id: item.itemId,
+               name: item.title,
+               imageUrl: item.image?.imageUrl || '',
+               imageUrlSmall: item.image?.imageUrl || '',
+               set: 'eBay',
+               price: parseFloat(item.price?.value || '0'),
+               priceSource: 'eBay',
+               game: 'ebay' as GameId,
+           }));
+           setTrendingCards(ebayCards.slice(0, 8));
         } else {
-          setTrendingCards([]);
+           setTrendingCards([]);
         }
       } else {
         const result = await searchCards(sig.term, sig.game);
@@ -174,31 +174,24 @@ export default function IndexScreen() {
     setViewMode('results');
     try {
       if (activeFilter === 'ebay') {
-          const pin = getSessionPin();
-          const creds = await decryptEbayCredentials(pin);
-          if (!creds) {
-              showToast('No BYOK eBay credentials set in Settings');
-              setResults([]);
-              setTotalResults(0);
+          const creds = await getBYOKCredentials();
+          const ebayData = await executeEbayFetch(creds?.appId, creds?.secret, query.trim(), false);
+          if (ebayData && ebayData.itemSummaries) {
+              const ebayCards = ebayData.itemSummaries.map((item: any) => ({
+                 id: item.itemId,
+                 name: item.title,
+                 imageUrl: item.image?.imageUrl || '',
+                 imageUrlSmall: item.image?.imageUrl || '',
+                 set: 'eBay',
+                 price: parseFloat(item.price?.value || '0'),
+                 priceSource: 'eBay',
+                 game: 'ebay' as GameId,
+             }));
+             setResults(ebayCards);
+             setTotalResults(ebayCards.length);
           } else {
-              const ebayData = await executeEbayFetch(creds.appId, creds.secret, query.trim(), false);
-              if (ebayData && ebayData.itemSummaries) {
-                  const ebayCards = ebayData.itemSummaries.map((item: any) => ({
-                     id: item.itemId,
-                     name: item.title,
-                     imageUrl: item.image?.imageUrl || '',
-                     imageUrlSmall: item.image?.imageUrl || '',
-                     set: 'eBay',
-                     price: parseFloat(item.price?.value || '0'),
-                     priceSource: 'eBay',
-                     game: 'ebay' as GameId,
-                 }));
-                 setResults(ebayCards);
-                 setTotalResults(ebayCards.length);
-              } else {
-                 setResults([]);
-                 setTotalResults(0);
-              }
+             setResults([]);
+             setTotalResults(0);
           }
       } else {
           const game = activeFilter === 'all' ? undefined : (activeFilter as GameId);
@@ -208,7 +201,7 @@ export default function IndexScreen() {
       }
     } catch (err: any) {
       if (activeFilter === 'ebay') {
-        showToast(err.message || 'Failed to fetch from eBay. Check your keys.');
+        showToast(err.message || 'Failed to fetch eBay data.');
       }
       setResults([]);
       setTotalResults(0);
@@ -252,17 +245,8 @@ export default function IndexScreen() {
     setCompsLoading(true);
     setCompsError('');
     try {
-      // Prompt for PIN via a simple UI or assume PIN is cached/already decoded?
-      // For now, let's just attempt decryption with a placeholder PIN (this should be a prompt in real app)
-      // Actually, since this is a demo/prototype, let's just decrypt if native or use the saved PIN state.
-      // Wait, we need the PIN! Let's just prompt using Prompt if possible, or fallback to an error telling them to setup.
-      const pin = getSessionPin();
-      const creds = await decryptEbayCredentials(pin);
-      if (!creds) {
-        setCompsError('No BYOK credentials found or invalid PIN. Set them up in Settings.');
-        setCompsLoading(false);
-        return;
-      }
+      // Use BYOK if available, otherwise proxy handles auth server-side
+      const creds = await getBYOKCredentials();
       
       // Build precision query using card name + set + collector number
       const query = card.name.trim();
@@ -270,11 +254,11 @@ export default function IndexScreen() {
       const cardNumber = card.number || undefined;
       
       // Execute fetch with precision identifiers
-      let ebayData = await executeEbayFetch(creds.appId, creds.secret, query, false, setName, cardNumber);
+      let ebayData = await executeEbayFetch(creds?.appId, creds?.secret, query, false, setName, cardNumber);
       
       // If no results with precision query, fall back to just card name
       if (!ebayData?.clResult && !ebayData?.itemSummaries?.length) {
-          ebayData = await executeEbayFetch(creds.appId, creds.secret, query, false);
+          ebayData = await executeEbayFetch(creds?.appId, creds?.secret, query, false);
       }
       
       if (ebayData && ebayData.clResult) {
@@ -533,6 +517,15 @@ export default function IndexScreen() {
                 </Text>
               </View>
             )}
+            
+            {/* Save to Vault — prominent action button */}
+            <TouchableOpacity
+              style={[styles.heroSaveBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow }]}
+              onPress={() => handleSaveToVault(selectedCard)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.heroSaveBtnText, { color: theme.accent }]}>+ SAVE TO VAULT</Text>
+            </TouchableOpacity>
           </View>
           
           {/* CL Value Panel */}
@@ -628,22 +621,7 @@ export default function IndexScreen() {
     return (
       <View style={styles.header}>
         <ScreenTitle title="Index" subtitle="Cross-system market telemetry" showGear />
-        {/* Setup Banner — shown when no eBay keys configured */}
-        {showSetupBanner && (
-          <View style={[styles.setupBanner, { backgroundColor: theme.accentDim, borderColor: theme.accent }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>
-                💡 Set up your free eBay keys to unlock live market comps
-              </Text>
-              <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: 4 }}>
-                Tap ⚙ Settings → eBay Integration to get started (takes 2 min)
-              </Text>
-            </View>
-            <TouchableOpacity onPress={() => setShowSetupBanner(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <Text style={{ color: theme.textMuted, fontSize: 18, fontWeight: '700' }}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* eBay works out of the box via server proxy — no setup needed */}
 
         {/* Trending */}
         <View style={styles.trendingSection}>
@@ -1161,6 +1139,21 @@ const styles = StyleSheet.create({
   methodStep: {
     fontSize: FontSizes.xs,
     lineHeight: 18,
+  },
+
+  // Save to Vault (card details)
+  heroSaveBtn: {
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    alignItems: 'center',
+    marginTop: Spacing.lg,
+  },
+  heroSaveBtnText: {
+    fontSize: FontSizes.sm,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
 });
 

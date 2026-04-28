@@ -20,7 +20,7 @@ const ThemeContext = createContext<ThemeContextValue>({
   themeName: defaultTheme,
   setTheme: () => {},
   allThemes: themeMetadata,
-  wallpaper: { uri: null, borderEffect: 'none', opacity: 0.25 },
+  wallpaper: { uri: null, borderEffect: 'none', opacity: 0.25, effectsEnabled: true },
   setWallpaper: () => {},
   clearWallpaper: () => {},
 });
@@ -28,7 +28,7 @@ const ThemeContext = createContext<ThemeContextValue>({
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [themeName, setThemeName] = useState<ThemeName>(defaultTheme);
   const [wallpaper, setWallpaperState] = useState<WallpaperState>({
-    uri: null, borderEffect: 'none', opacity: 0.25,
+    uri: null, borderEffect: 'none', opacity: 0.25, effectsEnabled: true
   });
 
   // Load saved theme + wallpaper on mount
@@ -53,7 +53,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const clearWallpaper = useCallback(async () => {
     await clearWallpaperStorage();
-    setWallpaperState({ uri: null, borderEffect: 'none', opacity: 0.25 });
+    setWallpaperState({ uri: null, borderEffect: 'none', opacity: 0.25, effectsEnabled: true });
   }, []);
 
   return (

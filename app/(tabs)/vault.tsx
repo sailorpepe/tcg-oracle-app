@@ -18,6 +18,7 @@ import { Spacing, FontSizes, BorderRadius } from '@/constants/Theme';
 import { Card, GAMES } from '@/lib/api';
 import { getVault, removeFromVault, clearVault as clearVaultStorage } from '@/lib/vault';
 import ScreenTitle from '@/components/ScreenTitle';
+import WallpaperBackground from '@/components/WallpaperBackground';
 
 export default function VaultScreen() {
   const { theme } = useTheme();
@@ -124,6 +125,7 @@ export default function VaultScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <WallpaperBackground />
       <StatusBar barStyle={theme.statusBar} />
       <FlatList
         data={cards}

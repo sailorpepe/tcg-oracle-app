@@ -11,17 +11,55 @@ import {
   Image,
   Platform,
   Alert,
+  TextInput,
+  Switch,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '@/lib/ThemeContext';
 import { ThemeName } from '@/constants/Themes';
 import { Spacing, FontSizes, BorderRadius } from '@/constants/Theme';
 import { BORDER_EFFECTS, BorderEffect } from '@/lib/wallpaper';
 import ScreenTitle from '@/components/ScreenTitle';
 import WallpaperBackground from '@/components/WallpaperBackground';
+import { secureEbayCredentials, hasSecureCredentials } from '@/lib/crypto-utils';
 
 export default function SettingsScreen() {
   const { theme, themeName, setTheme, allThemes, wallpaper, setWallpaper, clearWallpaper } = useTheme();
+
+  const [hasKeys, setHasKeys] = useState(false);
+  const [appId, setAppId] = useState('');
+  const [secret, setSecret] = useState('');
+  const [pin, setPin] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    hasSecureCredentials().then(setHasKeys);
+  }, []);
+
+  const handleSaveKeys = async () => {
+    if (!appId || !secret || pin.length !== 4) {
+      Alert.alert('Error', 'Please provide App ID, Secret, and a 4-digit PIN.');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await secureEbayCredentials(pin, appId, secret);
+      // Store PIN in session-only storage (cleared when tab closes)
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.setItem('@tcg_oracle_session_pin', pin);
+      }
+      setHasKeys(true);
+      setAppId('');
+      setSecret('');
+      setPin('');
+      Alert.alert('Secured', 'Your keys have been symmetrically encrypted using AES-GCM and securely stored.');
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Error', 'Failed to secure credentials.');
+    }
+    setIsSaving(false);
+  };
 
   const pickImage = async () => {
     try {
@@ -172,6 +210,89 @@ export default function SettingsScreen() {
               );
             })}
           </View>
+
+          {/* Toggle for Animations */}
+          <View style={[styles.row, { borderBottomColor: theme.border, marginTop: Spacing.xl }]}>
+            <View>
+              <Text style={[styles.rowText, { color: theme.textPrimary }]}>Animations & Effects</Text>
+              <Text style={[{ color: theme.textMuted, fontSize: FontSizes.xs, marginTop: 4 }]}>
+                Enable throbbing border effects and glowing icons.
+              </Text>
+            </View>
+            <Switch
+              value={wallpaper.effectsEnabled !== false}
+              onValueChange={(val) => setWallpaper({ effectsEnabled: val })}
+              trackColor={{ false: theme.surfaceElevated, true: theme.accentMuted }}
+              thumbColor={wallpaper.effectsEnabled !== false ? theme.accent : theme.textMuted}
+            />
+          </View>
+        </View>
+
+        {/* ── eBay BYOK Settings ── */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>eBay Integration (BYOK)</Text>
+          <Text style={[styles.sectionHint, { color: theme.textDim }]}>
+            Connect your developer keys for real-time market comps. Keys are encrypted locally using AES-GCM and never leave this device.
+          </Text>
+
+          {hasKeys ? (
+            <View style={[styles.keyStatusCard, { backgroundColor: theme.accentDim, borderColor: theme.accent }]}>
+              <Text style={{ color: theme.accent, fontSize: FontSizes.md, fontWeight: '700' }}>✓ Secure Key Injected</Text>
+              <Text style={{ color: theme.textMuted, fontSize: FontSizes.xs, marginTop: 4 }}>
+                Your eBay credentials are symmetrically encrypted. A PIN is required to authorize fetches.
+              </Text>
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: theme.surface, borderColor: theme.border, marginTop: Spacing.md }]}
+                onPress={() => setHasKeys(false)}
+              >
+                <Text style={[styles.actionBtnText, { color: theme.textPrimary }]}>RESET KEYS</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={[styles.keyForm, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={[styles.instructionBox, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
+                <Text style={[styles.instructionTitle, { color: theme.textPrimary }]}>How to get your keys:</Text>
+                <Text style={[styles.instructionStep, { color: theme.textSecondary }]}>1. Go to <Text style={{ color: theme.accent, textDecorationLine: 'underline' }} onPress={() => Linking.openURL('https://developer.ebay.com/my/keys')}>developer.ebay.com/my/keys</Text> and sign in.</Text>
+                <Text style={[styles.instructionStep, { color: theme.textSecondary }]}>2. In the <Text style={{ fontWeight: 'bold' }}>Application Keys</Text> tab (NOT User Tokens), find the <Text style={{ fontWeight: 'bold' }}>Production</Text> row.</Text>
+                <Text style={[styles.instructionStep, { color: theme.textSecondary }]}>3. Click <Text style={{ fontWeight: 'bold' }}>"Create a Key Set"</Text> (if you don't have one) to reveal your keys.</Text>
+                <Text style={[styles.instructionStep, { color: theme.textSecondary }]}>4. Copy the <Text style={{ fontWeight: 'bold' }}>App ID (Client ID)</Text> and <Text style={{ fontWeight: 'bold' }}>Cert ID (Client Secret)</Text> below.</Text>
+                <Text style={[styles.instructionStep, { color: theme.textSecondary, marginTop: Spacing.xs }]}>Note: We only need standard Application Keys for public data. Do not set up OAuth or User Redirects.</Text>
+              </View>
+
+              <TextInput
+                style={[styles.input, { color: theme.textPrimary, borderColor: theme.border }]}
+                placeholder="eBay App ID (Client ID)"
+                placeholderTextColor={theme.textSecondary}
+                value={appId}
+                onChangeText={setAppId}
+              />
+              <TextInput
+                style={[styles.input, { color: theme.textPrimary, borderColor: theme.border }]}
+                placeholder="eBay Cert ID"
+                placeholderTextColor={theme.textSecondary}
+                secureTextEntry
+                value={secret}
+                onChangeText={setSecret}
+              />
+              <TextInput
+                style={[styles.input, { color: theme.textPrimary, borderColor: theme.border }]}
+                placeholder="Create 4-Digit PIN (e.g. 1234)"
+                placeholderTextColor={theme.textSecondary}
+                keyboardType="numeric"
+                secureTextEntry
+                maxLength={4}
+                value={pin}
+                onChangeText={setPin}
+              />
+              <TouchableOpacity
+                style={[styles.saveBtn, { backgroundColor: theme.accent, opacity: isSaving ? 0.7 : 1 }]}
+                onPress={handleSaveKeys}
+                disabled={isSaving}
+              >
+                <Text style={styles.saveBtnText}>{isSaving ? 'ENCRYPTING...' : 'ENCRYPT & SAVE'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* ── About ── */}
@@ -406,5 +527,51 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: FontSizes.xs,
+  },
+  
+  // BYOK
+  keyForm: {
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    gap: Spacing.sm,
+  },
+  keyStatusCard: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+  },
+  input: {
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderRadius: BorderRadius.sm,
+    fontSize: FontSizes.sm,
+  },
+  saveBtn: {
+    padding: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    alignItems: 'center',
+    marginTop: Spacing.xs,
+  },
+  saveBtnText: {
+    color: '#000',
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  instructionBox: {
+    padding: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    marginBottom: Spacing.sm,
+  },
+  instructionTitle: {
+    fontSize: FontSizes.sm,
+    fontWeight: '700',
+    marginBottom: Spacing.xs,
+  },
+  instructionStep: {
+    fontSize: FontSizes.xs,
+    marginBottom: 4,
+    lineHeight: 18,
   },
 });

@@ -11,7 +11,7 @@
 
 // ─── Types ────────────────────────────────────────────
 
-export type GameId = 'pokemon' | 'magic' | 'yugioh' | 'onepiece';
+export type GameId = 'pokemon' | 'magic' | 'yugioh' | 'onepiece' | 'lorcana' | 'ebay';
 
 export interface GameInfo {
   id: GameId;
@@ -58,6 +58,7 @@ export const GAMES: GameInfo[] = [
   { id: 'magic',    name: 'Magic',    emoji: '🔮', color: '#9146ff', description: 'The Gathering' },
   { id: 'yugioh',   name: 'Yu-Gi-Oh!', emoji: '🃏', color: '#e44d26', description: 'It\'s time to duel' },
   { id: 'onepiece', name: 'One Piece', emoji: '🏴‍☠️', color: '#e74c3c', description: 'Set sail for adventure' },
+  { id: 'lorcana',  name: 'Lorcana',  emoji: '✨', color: '#6366f1', description: 'A Disney adventure' },
 ];
 
 // ─── Pokémon TCG API ──────────────────────────────────
@@ -304,6 +305,7 @@ export async function searchCards(query: string, game?: GameId): Promise<SearchR
       case 'magic': return searchMagic(query);
       case 'yugioh': return searchYugioh(query);
       case 'onepiece': return searchOnePiece(query);
+      case 'lorcana': return searchLorcana(query);
     }
   }
 
@@ -313,6 +315,7 @@ export async function searchCards(query: string, game?: GameId): Promise<SearchR
     searchMagic(query),
     searchYugioh(query),
     searchOnePiece(query),
+    searchLorcana(query),
   ]);
 
   const allCards: Card[] = [];
@@ -336,6 +339,8 @@ export async function getSets(game: GameId): Promise<CardSet[]> {
     case 'magic': return getMagicSets();
     case 'yugioh': return getYugiohSets();
     case 'onepiece': return getOnePieceSets();
+    case 'lorcana': return getLorcanaSets();
+    default: return [];
   }
 }
 
@@ -414,7 +419,76 @@ export async function getSetCards(game: GameId, setId: string, setName?: string)
   switch (game) {
     case 'pokemon': return getPokemonSetCards(setId);
     case 'magic': return getMagicSetCards(setId);
-    case 'yugioh': return getYugiohSetCards(setName || setId); // YGOProDeck needs set name, not code
+    case 'yugioh': return getYugiohSetCards(setName || setId);
     case 'onepiece': return getOnePieceSetCards(setId);
+    case 'lorcana': return getLorcanaSetCards(setId);
+    default: return [];
+  }
+}
+
+// ─── Disney Lorcana (Lorcast API) ─────────────────────
+
+const LORCAST_API = 'https://api.lorcast.com/v0';
+
+export async function searchLorcana(query: string): Promise<SearchResult> {
+  const resp = await fetch(`${LORCAST_API}/cards/search?q=${encodeURIComponent(query)}`);
+  if (!resp.ok) throw new Error(`Lorcana API: ${resp.status}`);
+  const data = await resp.json();
+  const cards = data.results || data.data || [];
+  return {
+    game: 'lorcana',
+    total: cards.length,
+    cards: cards.slice(0, 20).map((c: any) => ({
+      id: c.id || '',
+      name: c.version ? `${c.name} - ${c.version}` : c.name || '',
+      imageUrl: c.image_uris?.digital?.large || c.image_uris?.digital?.normal || '',
+      imageUrlSmall: c.image_uris?.digital?.small || c.image_uris?.digital?.normal || '',
+      set: c.set?.name || '',
+      rarity: c.rarity || '',
+      price: c.prices?.usd || c.prices?.usd_foil || null,
+      priceSource: 'Market',
+      game: 'lorcana' as GameId,
+      type: (c.type || []).join(', '),
+      number: c.collector_number || '',
+    })),
+  };
+}
+
+export async function getLorcanaSets(): Promise<CardSet[]> {
+  const resp = await fetch(`${LORCAST_API}/sets`);
+  if (!resp.ok) throw new Error(`Lorcana Sets API: ${resp.status}`);
+  const data = await resp.json();
+  const sets = data.results || data.data || data;
+  return (Array.isArray(sets) ? sets : []).map((s: any) => ({
+    id: s.id || s.code || '',
+    name: s.name || '',
+    code: s.code || '',
+    releaseDate: s.released_at || '',
+    totalCards: s.card_count || undefined,
+    game: 'lorcana' as GameId,
+  })).sort((a: CardSet, b: CardSet) => (b.releaseDate || '').localeCompare(a.releaseDate || ''));
+}
+
+export async function getLorcanaSetCards(setId: string): Promise<Card[]> {
+  try {
+    const resp = await fetch(`${LORCAST_API}/sets/${setId}/cards`);
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    const cards = data.results || data.data || [];
+    return cards.slice(0, 100).map((c: any) => ({
+      id: c.id || '',
+      name: c.version ? `${c.name} - ${c.version}` : c.name || '',
+      imageUrl: c.image_uris?.digital?.large || c.image_uris?.digital?.normal || '',
+      imageUrlSmall: c.image_uris?.digital?.small || c.image_uris?.digital?.normal || '',
+      set: c.set?.name || '',
+      rarity: c.rarity || '',
+      price: c.prices?.usd || c.prices?.usd_foil || null,
+      priceSource: 'Market',
+      game: 'lorcana' as GameId,
+      type: (c.type || []).join(', '),
+      number: c.collector_number || '',
+    }));
+  } catch {
+    return [];
   }
 }

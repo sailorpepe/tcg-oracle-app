@@ -22,6 +22,7 @@ import { ChatMessage, AVAILABLE_ENGINES, EngineId } from '@/lib/inference/engine
 import { createCloudEngine, saveEngineKey, getEngineKey, saveActiveEngine, getActiveEngine, verifyKey } from '@/lib/inference/cloud-engine';
 import { buildSystemPrompt } from '@/lib/inference/context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import WallpaperBackground from '@/components/WallpaperBackground';
 
 type ViewState = 'chat' | 'engines' | 'connect';
 
@@ -288,6 +289,7 @@ export default function OracleScreen() {
   if (viewState === 'engines') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <WallpaperBackground />
         <StatusBar barStyle={theme.statusBar} />
         <ScrollView style={styles.enginesContainer} contentContainerStyle={styles.enginesContent}>
           <TouchableOpacity onPress={() => setViewState('chat')} style={styles.backBtn}>
@@ -347,6 +349,7 @@ export default function OracleScreen() {
     const isOllama = connectingEngine === 'ollama';
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <WallpaperBackground />
         <StatusBar barStyle={theme.statusBar} />
         <ScrollView style={styles.enginesContainer} contentContainerStyle={styles.enginesContent}>
           <TouchableOpacity onPress={() => setViewState('engines')} style={styles.backBtn}>
@@ -425,6 +428,7 @@ export default function OracleScreen() {
   // ─── Chat View (ALWAYS the default) ────────
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <WallpaperBackground />
       <StatusBar barStyle={theme.statusBar} />
 
       <KeyboardAvoidingView

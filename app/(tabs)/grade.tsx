@@ -13,6 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '@/lib/ThemeContext';
 import { Spacing, FontSizes, BorderRadius } from '@/constants/Theme';
 import ScreenTitle from '@/components/ScreenTitle';
+import WallpaperBackground from '@/components/WallpaperBackground';
 
 export default function GradeScreen() {
   const { theme } = useTheme();
@@ -42,6 +43,7 @@ export default function GradeScreen() {
   if (!isWeb && permission && !permission.granted) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <WallpaperBackground />
         <StatusBar barStyle={theme.statusBar} />
         <View style={styles.permissionBox}>
           <ScreenTitle title="Scan" subtitle="Neural vision pipeline" />
@@ -79,6 +81,7 @@ export default function GradeScreen() {
   if (isWeb) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <WallpaperBackground />
         <StatusBar barStyle={theme.statusBar} />
         <View style={styles.contentBox}>
           <ScreenTitle title="Scan" subtitle="Neural vision pipeline" showGear />
@@ -216,6 +219,7 @@ export default function GradeScreen() {
   // ─── Camera view (native iOS/Android) ───
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <WallpaperBackground />
       <StatusBar barStyle="light-content" />
 
       {capturedUri ? (

@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
+import React, { useRef, useEffect } from 'react';
+import { View, Text, StyleSheet, Platform, TouchableOpacity, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '@/lib/ThemeContext';
 import { useRouter } from 'expo-router';
@@ -17,8 +17,31 @@ interface Props {
  * Optional gear icon in the top-right for settings access.
  */
 export default function ScreenTitle({ emoji, title, subtitle, showGear = false }: Props) {
-  const { theme } = useTheme();
+  const { theme, wallpaper } = useTheme();
   const router = useRouter();
+
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (showGear && wallpaper.effectsEnabled !== false) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 0.4,
+            duration: 1500,
+            useNativeDriver: true, // Note: opacity and transform are supported
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 0,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.setValue(0);
+    }
+  }, [showGear, wallpaper.effectsEnabled]);
 
   return (
     <View style={styles.container}>
@@ -36,9 +59,14 @@ export default function ScreenTitle({ emoji, title, subtitle, showGear = false }
           style={styles.gearButton}
           onPress={() => router.push('/settings')}
           activeOpacity={0.6}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={[styles.gearIcon, { color: theme.textMuted }]}>⚙</Text>
+          <Animated.View style={[
+            styles.gearGlow,
+            { opacity: pulseAnim }
+          ]} />
+          <Text style={[styles.gearIcon, { color: theme.textPrimary }]}>⚙</Text>
+          <Text style={[styles.gearLabel, { color: theme.textMuted }]}>Settings</Text>
         </TouchableOpacity>
       )}
 
@@ -87,9 +115,35 @@ const styles = StyleSheet.create({
     right: 20,
     zIndex: 10,
     padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  gearGlow: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    shadowColor: '#ffffff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 5,
   },
   gearIcon: {
-    fontSize: 20,
+    fontSize: 22,
+    zIndex: 2,
+    textShadowColor: '#fff',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 10,
+  },
+  gearLabel: {
+    fontSize: 8,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginTop: 2,
+    zIndex: 2,
   },
   titleRow: {
     flexDirection: 'row',

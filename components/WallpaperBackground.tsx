@@ -3,8 +3,8 @@
  * behind screen content. Designed to be the first child inside SafeAreaView.
  */
 
-import React from 'react';
-import { View, Image, StyleSheet, Dimensions } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Image, StyleSheet, Dimensions, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '@/lib/ThemeContext';
 import { BORDER_EFFECTS } from '@/lib/wallpaper';
@@ -19,6 +19,29 @@ export default function WallpaperBackground() {
   const effectMeta = BORDER_EFFECTS.find(e => e.id === wallpaper.borderEffect);
   const hasEffect = effectMeta && effectMeta.colors.length > 0;
 
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (hasEffect && wallpaper.effectsEnabled !== false) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 0.6,
+            duration: 1200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1200,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [hasEffect, wallpaper.effectsEnabled]);
+
   return (
     <View style={styles.container} pointerEvents="none">
       {/* Wallpaper image */}
@@ -29,11 +52,11 @@ export default function WallpaperBackground() {
       />
 
       {/* Dark overlay for readability */}
-      <View style={[styles.overlay, { backgroundColor: theme.background, opacity: 1 - wallpaper.opacity }]} />
+      <View style={[styles.overlay, { backgroundColor: theme.background, opacity: 0.2 }]} />
 
       {/* Border effect — gradient frame */}
       {hasEffect && (
-        <>
+        <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: pulseAnim }]}>
           {/* Top edge */}
           <LinearGradient
             colors={effectMeta.colors as [string, string, ...string[]]}
@@ -58,7 +81,7 @@ export default function WallpaperBackground() {
             start={{ x: 0, y: 1 }} end={{ x: 0, y: 0 }}
             style={[styles.borderEdge, styles.borderRight]}
           />
-        </>
+        </Animated.View>
       )}
     </View>
   );

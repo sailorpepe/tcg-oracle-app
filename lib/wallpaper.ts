@@ -47,12 +47,14 @@ export interface WallpaperState {
   uri: string | null;           // base64 data URI or file URI
   borderEffect: BorderEffect;
   opacity: number;              // 0.1 - 0.5 (so UI stays readable)
+  effectsEnabled: boolean;      // Global toggle for animations/effects
 }
 
 const DEFAULT_STATE: WallpaperState = {
   uri: null,
   borderEffect: 'none',
   opacity: 0.25,
+  effectsEnabled: true,
 };
 
 export async function getWallpaper(): Promise<WallpaperState> {

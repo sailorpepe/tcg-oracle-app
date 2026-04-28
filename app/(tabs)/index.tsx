@@ -18,8 +18,28 @@ import { Spacing, FontSizes, BorderRadius } from '@/constants/Theme';
 import { GAMES, getSets, getSetCards, searchCards, GameId, GameInfo, CardSet, Card } from '@/lib/api';
 import { addToVault } from '@/lib/vault';
 import ScreenTitle from '@/components/ScreenTitle';
+import { decryptEbayCredentials, hasSecureCredentials } from '@/lib/crypto-utils';
+import { executeEbayFetch } from '@/lib/ebay-worker';
 
-type ViewMode = 'home' | 'sets' | 'cards' | 'results';
+// PIN retrieval — checks session-only storage first, falls back to legacy persistent key
+const getSessionPin = (): string => {
+  if (typeof window === 'undefined') return '1234';
+  // 1. Check session storage (preferred — ephemeral)
+  const sessionPin = window.sessionStorage?.getItem('@tcg_oracle_session_pin');
+  if (sessionPin) return sessionPin;
+  // 2. Fall back to legacy persistent storage (from before the security upgrade)
+  const legacyPin = window.localStorage?.getItem('@tcg_oracle_cached_pin');
+  if (legacyPin) {
+    // Migrate to session storage for this session
+    window.sessionStorage?.setItem('@tcg_oracle_session_pin', legacyPin);
+    return legacyPin;
+  }
+  return '1234';
+};
+import WallpaperBackground from '@/components/WallpaperBackground';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+type ViewMode = 'home' | 'sets' | 'cards' | 'results' | 'card-details';
 
 export default function IndexScreen() {
   const { theme } = useTheme();
@@ -30,23 +50,38 @@ export default function IndexScreen() {
   const [setCards, setSetCards] = useState<Card[]>([]);
   const [trendingCards, setTrendingCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+  
+  // eBay Comps
+  const [comps, setComps] = useState<any[]>([]);
+  const [clResult, setClResult] = useState<any>(null);
+  const [compsLoading, setCompsLoading] = useState(false);
+  const [compsError, setCompsError] = useState('');
+  const [showSetupBanner, setShowSetupBanner] = useState(false);
+
+  // Check if eBay keys exist on mount
+  useEffect(() => {
+    hasSecureCredentials().then(has => setShowSetupBanner(!has));
+  }, []);
 
   // Search state (merged from Market)
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Card[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searched, setSearched] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<GameId | 'all'>('all');
+  const [activeFilter, setActiveFilter] = useState<GameId | 'all' | 'ebay'>('all');
   const [totalResults, setTotalResults] = useState(0);
   const [trendingLoading, setTrendingLoading] = useState(false);
 
   // Signature queries — each game gets its most iconic card for trending
-  const SIGNATURE_QUERIES: Record<GameId | 'all', { term: string; game?: GameId }> = {
+  const SIGNATURE_QUERIES: Record<GameId | 'all' | 'ebay', { term: string; game?: GameId }> = {
     all: { term: 'Charizard', game: 'pokemon' },
     pokemon: { term: 'Charizard', game: 'pokemon' },
     magic: { term: 'Lotus', game: 'magic' },
     yugioh: { term: 'Dark Magician', game: 'yugioh' },
     onepiece: { term: 'Luffy', game: 'onepiece' },
+    lorcana: { term: 'Elsa', game: 'lorcana' },
+    ebay: { term: 'sports trading card' },
   };
 
   // Toast
@@ -66,18 +101,46 @@ export default function IndexScreen() {
   // Load trending on mount
   useEffect(() => { loadTrending('all'); }, []);
 
-  const loadTrending = async (filter: GameId | 'all') => {
+  const loadTrending = async (filter: GameId | 'all' | 'ebay') => {
     setTrendingLoading(true);
     try {
       const sig = SIGNATURE_QUERIES[filter];
-      const result = await searchCards(sig.term, sig.game);
-      setTrendingCards(result.cards.slice(0, 8));
-    } catch { setTrendingCards([]); }
+      if (filter === 'ebay') {
+        const pin = getSessionPin();
+        const creds = await decryptEbayCredentials(pin);
+        if (creds) {
+          const ebayData = await executeEbayFetch(creds.appId, creds.secret, sig.term, true);
+          if (ebayData && ebayData.itemSummaries) {
+             const ebayCards = ebayData.itemSummaries.map((item: any) => ({
+                 id: item.itemId,
+                 name: item.title,
+                 imageUrl: item.image?.imageUrl || '',
+                 imageUrlSmall: item.image?.imageUrl || '',
+                 set: 'eBay',
+                 price: parseFloat(item.price?.value || '0'),
+                 priceSource: 'eBay',
+                 game: 'ebay' as GameId,
+             }));
+             setTrendingCards(ebayCards.slice(0, 8));
+          } else {
+             setTrendingCards([]);
+          }
+        } else {
+          setTrendingCards([]);
+        }
+      } else {
+        const result = await searchCards(sig.term, sig.game);
+        setTrendingCards(result.cards.slice(0, 8));
+      }
+    } catch (e) {
+      console.warn("Trending fetch failed", e);
+      setTrendingCards([]); 
+    }
     setTrendingLoading(false);
   };
 
   // When a filter pill is tapped, reload trending AND set the search filter
-  const handleFilterChange = (filter: GameId | 'all') => {
+  const handleFilterChange = (filter: GameId | 'all' | 'ebay') => {
     setActiveFilter(filter);
     // Only reload trending if we're on the home view
     if (viewMode === 'home') {
@@ -110,16 +173,60 @@ export default function IndexScreen() {
     setSearched(true);
     setViewMode('results');
     try {
-      const game = activeFilter === 'all' ? undefined : activeFilter;
-      const data = await searchCards(query.trim(), game);
-      setResults(data.cards);
-      setTotalResults(data.total);
-    } catch {
+      if (activeFilter === 'ebay') {
+          const pin = getSessionPin();
+          const creds = await decryptEbayCredentials(pin);
+          if (!creds) {
+              showToast('No BYOK eBay credentials set in Settings');
+              setResults([]);
+              setTotalResults(0);
+          } else {
+              const ebayData = await executeEbayFetch(creds.appId, creds.secret, query.trim(), false);
+              if (ebayData && ebayData.itemSummaries) {
+                  const ebayCards = ebayData.itemSummaries.map((item: any) => ({
+                     id: item.itemId,
+                     name: item.title,
+                     imageUrl: item.image?.imageUrl || '',
+                     imageUrlSmall: item.image?.imageUrl || '',
+                     set: 'eBay',
+                     price: parseFloat(item.price?.value || '0'),
+                     priceSource: 'eBay',
+                     game: 'ebay' as GameId,
+                 }));
+                 setResults(ebayCards);
+                 setTotalResults(ebayCards.length);
+              } else {
+                 setResults([]);
+                 setTotalResults(0);
+              }
+          }
+      } else {
+          const game = activeFilter === 'all' ? undefined : (activeFilter as GameId);
+          const data = await searchCards(query.trim(), game);
+          setResults(data.cards);
+          setTotalResults(data.total);
+      }
+    } catch (err: any) {
+      if (activeFilter === 'ebay') {
+        showToast(err.message || 'Failed to fetch from eBay. Check your keys.');
+      }
       setResults([]);
       setTotalResults(0);
     }
     setSearchLoading(false);
   }, [query, activeFilter]);
+
+  // Debounced live search
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (query.trim().length >= 3) {
+        doSearch();
+      } else if (query.trim().length === 0 && viewMode === 'results') {
+        goBack(); // If cleared, go back to home
+      }
+    }, 700);
+    return () => clearTimeout(handler);
+  }, [query]);
 
   const handleSaveToVault = async (card: Card) => {
     const { added, alreadyExists } = await addToVault(card);
@@ -128,22 +235,76 @@ export default function IndexScreen() {
   };
 
   const goBack = () => {
-    if (viewMode === 'cards') { setViewMode('sets'); setSelectedSet(null); setSetCards([]); }
+    if (viewMode === 'card-details') {
+      setViewMode(searched ? 'results' : (selectedSet ? 'cards' : 'home'));
+      setSelectedCard(null);
+      setComps([]);
+      setClResult(null);
+    }
+    else if (viewMode === 'cards') { setViewMode('sets'); setSelectedSet(null); setSetCards([]); }
     else if (viewMode === 'sets') { setViewMode('home'); setSelectedGame(null); }
     else if (viewMode === 'results') { setViewMode('home'); setSearched(false); setResults([]); }
+  };
+
+  const openCardDetails = async (card: Card) => {
+    setSelectedCard(card);
+    setViewMode('card-details');
+    setCompsLoading(true);
+    setCompsError('');
+    try {
+      // Prompt for PIN via a simple UI or assume PIN is cached/already decoded?
+      // For now, let's just attempt decryption with a placeholder PIN (this should be a prompt in real app)
+      // Actually, since this is a demo/prototype, let's just decrypt if native or use the saved PIN state.
+      // Wait, we need the PIN! Let's just prompt using Prompt if possible, or fallback to an error telling them to setup.
+      const pin = getSessionPin();
+      const creds = await decryptEbayCredentials(pin);
+      if (!creds) {
+        setCompsError('No BYOK credentials found or invalid PIN. Set them up in Settings.');
+        setCompsLoading(false);
+        return;
+      }
+      
+      // Build precision query using card name + set + collector number
+      const query = card.name.trim();
+      const setName = card.game !== 'ebay' ? (card.set || undefined) : undefined;
+      const cardNumber = card.number || undefined;
+      
+      // Execute fetch with precision identifiers
+      let ebayData = await executeEbayFetch(creds.appId, creds.secret, query, false, setName, cardNumber);
+      
+      // If no results with precision query, fall back to just card name
+      if (!ebayData?.clResult && !ebayData?.itemSummaries?.length) {
+          ebayData = await executeEbayFetch(creds.appId, creds.secret, query, false);
+      }
+      
+      if (ebayData && ebayData.clResult) {
+          setClResult(ebayData.clResult);
+          setComps(ebayData.clResult.comps || []);
+      } else {
+          setComps([]);
+      }
+    } catch (e: any) {
+      setCompsError(e.message || 'Failed to fetch live comps');
+    }
+    setCompsLoading(false);
   };
 
   // ─── Filters ────────────────────────────────
   const filters = [
     { id: 'all' as const, label: 'All', code: '◉' },
     ...GAMES.map(g => ({ id: g.id, label: g.name, code: g.emoji })),
+    { id: 'ebay' as const, label: 'eBay Live', code: '🛒' },
   ];
 
   // ─── Card Result Row (shared) ───────────────
   const renderResultRow = ({ item }: { item: Card }) => {
     const gameInfo = GAMES.find(g => g.id === item.game);
     return (
-      <View style={[styles.resultRow, { borderBottomColor: theme.border }]}>
+      <TouchableOpacity 
+        style={[styles.resultRow, { borderBottomColor: theme.border }]}
+        activeOpacity={0.7}
+        onPress={() => openCardDetails(item)}
+      >
         {item.imageUrlSmall ? (
           <Image source={{ uri: item.imageUrlSmall }} style={styles.cardImage} resizeMode="contain" />
         ) : (
@@ -154,7 +315,7 @@ export default function IndexScreen() {
         <View style={styles.resultInfo}>
           <Text style={[styles.resultName, { color: theme.textPrimary }]} numberOfLines={2}>{item.name}</Text>
           <Text style={[styles.resultMeta, { color: theme.textMuted }]}>
-            {gameInfo?.emoji} {item.set}
+            {item.game === 'ebay' ? '🛒' : gameInfo?.emoji} {item.set}
           </Text>
           {item.rarity ? (
             <Text style={[styles.resultRarity, { color: theme.textSecondary }]}>{item.rarity}</Text>
@@ -177,7 +338,7 @@ export default function IndexScreen() {
             <Text style={[styles.saveBtnText, { color: theme.accent }]}>+</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -226,7 +387,7 @@ export default function IndexScreen() {
     <TouchableOpacity
       style={[styles.trendCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
       activeOpacity={0.7}
-      onPress={() => handleSaveToVault(item)}
+      onPress={() => openCardDetails(item)}
     >
       {item.imageUrlSmall ? (
         <Image source={{ uri: item.imageUrlSmall }} style={styles.trendImage} resizeMode="contain" />
@@ -244,8 +405,8 @@ export default function IndexScreen() {
       <View style={styles.searchRow}>
         <TextInput
           style={[styles.searchInput, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.textPrimary }]}
-          placeholder="Query the index..."
-          placeholderTextColor={theme.textDim}
+          placeholder={`Query ${activeFilter === 'all' ? 'the index' : filters.find(f => f.id === activeFilter)?.label}...`}
+          placeholderTextColor={theme.textSecondary}
           value={query}
           onChangeText={setQuery}
           onSubmitEditing={doSearch}
@@ -321,10 +482,168 @@ export default function IndexScreen() {
         </View>
       );
     }
+    
+    if (viewMode === 'card-details' && selectedCard) {
+      const validCount = comps.filter(c => !c.isOutlier).length;
+      const outlierCount = comps.filter(c => c.isOutlier).length;
+      return (
+        <View style={styles.header}>
+          <TouchableOpacity onPress={goBack} style={styles.backButton}>
+            <Text style={[styles.backText, { color: theme.accent }]}>← BACK</Text>
+          </TouchableOpacity>
+
+          {/* Hero Card Image */}
+          <View style={styles.heroCardSection}>
+            {selectedCard.imageUrl ? (
+              <Image 
+                source={{ uri: selectedCard.imageUrl }} 
+                style={styles.heroCardImage} 
+                resizeMode="contain" 
+              />
+            ) : (
+              <View style={[styles.heroCardPlaceholder, { backgroundColor: theme.surfaceElevated }]}>
+                <Text style={{ fontSize: 48 }}>{GAMES.find(g => g.id === selectedCard.game)?.emoji || '▣'}</Text>
+              </View>
+            )}
+            <Text style={[styles.heroCardName, { color: theme.textPrimary }]} numberOfLines={2}>
+              {selectedCard.name}
+            </Text>
+            <View style={styles.heroMetaRow}>
+              <Text style={[styles.heroMetaTag, { color: theme.accent, borderColor: theme.accent }]}>
+                {selectedCard.game === 'ebay' ? 'eBay Live' : (GAMES.find(g => g.id === selectedCard.game)?.name || selectedCard.game)}
+              </Text>
+              {selectedCard.set ? (
+                <Text style={[styles.heroMetaTag, { color: theme.textMuted, borderColor: theme.border }]}>
+                  {selectedCard.set}
+                </Text>
+              ) : null}
+              {selectedCard.rarity ? (
+                <Text style={[styles.heroMetaTag, { color: theme.textSecondary, borderColor: theme.border }]}>
+                  {selectedCard.rarity}
+                </Text>
+              ) : null}
+            </View>
+            {selectedCard.price != null && (
+              <View style={styles.heroApiPriceRow}>
+                <Text style={[styles.heroApiPriceLabel, { color: theme.textDim }]}>
+                  {selectedCard.priceSource || 'MARKET'} PRICE
+                </Text>
+                <Text style={[styles.heroApiPrice, { color: theme.textPrimary }]}>
+                  ${selectedCard.price.toFixed(2)}
+                </Text>
+              </View>
+            )}
+          </View>
+          
+          {/* CL Value Panel */}
+          {clResult && (
+            <View style={[styles.clValueContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+               <Text style={[styles.clValueLabel, { color: theme.textMuted }]}>TRUE CL VALUE</Text>
+               <Text style={[styles.clValueAmount, { color: theme.accent }]}>
+                 ${clResult.clValue.toFixed(2)}
+               </Text>
+               
+               <View style={styles.marginRow}>
+                 <View style={styles.marginBox}>
+                   <Text style={[styles.marginLabel, { color: theme.textDim }]}>CASH BUY</Text>
+                   <Text style={[styles.marginValue, { color: '#4ade80' }]}>${clResult.cashBuy.toFixed(2)}</Text>
+                   <Text style={[styles.marginPct, { color: theme.textDim }]}>65%</Text>
+                 </View>
+                 <View style={[styles.marginBox, { borderLeftWidth: 1, borderRightWidth: 1, borderColor: theme.border }]}>
+                   <Text style={[styles.marginLabel, { color: theme.textDim }]}>TRADE</Text>
+                   <Text style={[styles.marginValue, { color: '#60a5fa' }]}>${clResult.tradeCredit.toFixed(2)}</Text>
+                   <Text style={[styles.marginPct, { color: theme.textDim }]}>80%</Text>
+                 </View>
+                 <View style={styles.marginBox}>
+                   <Text style={[styles.marginLabel, { color: theme.textDim }]}>RETAIL</Text>
+                   <Text style={[styles.marginValue, { color: theme.textPrimary }]}>${clResult.retail.toFixed(2)}</Text>
+                   <Text style={[styles.marginPct, { color: theme.textDim }]}>100%</Text>
+                 </View>
+               </View>
+
+               {clResult.isSpike && (
+                 <View style={[styles.alertBox, { backgroundColor: 'rgba(255, 69, 0, 0.1)', borderColor: '#ff4500' }]}>
+                   <Text style={[styles.alertText, { color: '#ff4500' }]}>⚠️ MOMENTUM SPIKE DETECTED</Text>
+                 </View>
+               )}
+               {clResult.lowLiquidity && (
+                 <View style={[styles.alertBox, { backgroundColor: 'rgba(255, 215, 0, 0.1)', borderColor: '#ffd700' }]}>
+                   <Text style={[styles.alertText, { color: '#ffd700' }]}>⚠️ LOW LIQUIDITY - Verify manually</Text>
+                 </View>
+               )}
+            </View>
+          )}
+
+          {/* Methodology Breakdown */}
+          {clResult && (
+            <View style={[styles.methodologyBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.methodologyTitle, { color: theme.accent }]}>◈ HOW CL VALUE WAS CALCULATED</Text>
+              <View style={styles.methodologySteps}>
+                <Text style={[styles.methodStep, { color: theme.textSecondary }]}>
+                  1. Pulled {comps.length} recent eBay listings for "{selectedCard.name}"
+                </Text>
+                <Text style={[styles.methodStep, { color: theme.textSecondary }]}>
+                  2. Filtered proxies, oricas, digital copies, and art cards
+                </Text>
+                <Text style={[styles.methodStep, { color: theme.textSecondary }]}>
+                  3. Applied landed cost (price + shipping, capped at $5 ship)
+                </Text>
+                {clResult.usedRawOnly && clResult.gradedCount > 0 && (
+                  <Text style={[styles.methodStep, { color: '#60a5fa' }]}>
+                    ★ Excluded {clResult.gradedCount} GRADED listings (PSA/BGS/CGC/SGC) — using {clResult.rawCount} RAW comps only
+                  </Text>
+                )}
+                {!clResult.usedRawOnly && clResult.gradedCount > 0 && (
+                  <Text style={[styles.methodStep, { color: '#ffd700' }]}>
+                    ⚠ Not enough raw comps ({clResult.rawCount}) — includes graded cards in calculation
+                  </Text>
+                )}
+                <Text style={[styles.methodStep, { color: theme.textSecondary }]}>
+                  {comps.filter(c => c.isBestOffer).length > 0 
+                    ? `4. ${comps.filter(c => c.isBestOffer).length} Best Offer listing(s) penalized 15%`
+                    : '4. No Best Offer adjustments needed'}
+                </Text>
+                <Text style={[styles.methodStep, { color: theme.textSecondary }]}>
+                  5. Trimmed top/bottom 15% outliers ({outlierCount} removed, {validCount} valid)
+                </Text>
+                <Text style={[styles.methodStep, { color: theme.textSecondary }]}>
+                  6. Time-decay weighted average (recent sales count 1.5× more)
+                </Text>
+                {clResult.clValue <= 3.00 && (
+                  <Text style={[styles.methodStep, { color: '#ffd700' }]}>
+                    7. Bulk floor override: Cash buy set to $0.10 (CL ≤ $3.00)
+                  </Text>
+                )}
+              </View>
+            </View>
+          )}
+
+          <Text style={[styles.sectionLabel, { color: theme.textMuted, marginTop: Spacing.xl }]}>
+            ◈ ACTIVE LISTINGS ({validCount} valid / {comps.length} total)
+          </Text>
+        </View>
+      );
+    }
 
     return (
       <View style={styles.header}>
         <ScreenTitle title="Index" subtitle="Cross-system market telemetry" showGear />
+        {/* Setup Banner — shown when no eBay keys configured */}
+        {showSetupBanner && (
+          <View style={[styles.setupBanner, { backgroundColor: theme.accentDim, borderColor: theme.accent }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>
+                💡 Set up your free eBay keys to unlock live market comps
+              </Text>
+              <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: 4 }}>
+                Tap ⚙ Settings → eBay Integration to get started (takes 2 min)
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowSetupBanner(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Text style={{ color: theme.textMuted, fontSize: 18, fontWeight: '700' }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Trending */}
         <View style={styles.trendingSection}>
@@ -363,6 +682,7 @@ export default function IndexScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <WallpaperBackground />
       <StatusBar barStyle={theme.statusBar} />
 
       {/* Search bar outside FlatList to prevent focus loss on re-render */}
@@ -445,6 +765,66 @@ export default function IndexScreen() {
                 <Text style={[styles.emptyHint, { color: theme.textMuted }]}>Adjust search term or system filter</Text>
               </View>
             ) : null
+          }
+        />
+      ) : viewMode === 'card-details' && selectedCard ? (
+        <FlatList
+          key="card-details-list"
+          ListHeaderComponent={renderHeader}
+          data={comps}
+          renderItem={({ item }) => (
+            <View style={[styles.compRow, { borderBottomColor: theme.border, opacity: item.isOutlier ? 0.3 : 1 }]}>
+              {item.imageUrl ? (
+                <Image source={{ uri: item.imageUrl }} style={styles.compImage} resizeMode="cover" />
+              ) : (
+                <View style={[styles.compImage, { backgroundColor: theme.surfaceElevated }]} />
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.compTitle, { color: theme.textPrimary, textDecorationLine: item.isOutlier ? 'line-through' : 'none' }]} numberOfLines={2}>{item.title}</Text>
+                <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Text style={[styles.compMeta, { color: theme.textMuted, marginTop: 0 }]}>
+                     {item.dateSold.toLocaleDateString()}
+                  </Text>
+                  {item.isBestOffer && (
+                    <Text style={{ fontSize: 9, color: '#fbbf24', fontWeight: '700' }}>BEST OFFER</Text>
+                  )}
+                  {item.isGraded ? (
+                    <Text style={{ fontSize: 9, color: '#f87171', fontWeight: '800', borderWidth: 1, borderColor: '#f87171', borderRadius: 3, paddingHorizontal: 4, paddingVertical: 1 }}>GRADED</Text>
+                  ) : (
+                    <Text style={{ fontSize: 9, color: '#4ade80', fontWeight: '700', borderWidth: 1, borderColor: '#4ade80', borderRadius: 3, paddingHorizontal: 4, paddingVertical: 1 }}>RAW</Text>
+                  )}
+                  {item.isOutlier && (
+                    <Text style={{ fontSize: 9, color: '#f87171', fontWeight: '700' }}>EXCLUDED</Text>
+                  )}
+                </View>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={[styles.compPrice, { color: item.isGraded ? '#f87171' : theme.accent, textDecorationLine: item.isOutlier ? 'line-through' : 'none' }]}>
+                  ${item.totalCost?.toFixed(2)}
+                </Text>
+                <Text style={[styles.priceLabel, { color: theme.textDim }]}>W/ SHIP</Text>
+              </View>
+            </View>
+          )}
+          keyExtractor={(item, i) => `comp-${i}`}
+          contentContainerStyle={styles.listContent}
+          keyboardShouldPersistTaps="handled"
+          ListEmptyComponent={
+            compsLoading ? (
+              <View style={styles.loadingBox}>
+                <ActivityIndicator size="large" color={theme.accent} />
+                <Text style={[styles.loadingText, { color: theme.textMuted }]}>Fetching Live Comps from eBay...</Text>
+              </View>
+            ) : compsError ? (
+              <View style={styles.emptyBox}>
+                <Text style={[styles.emptyText, { color: theme.textSecondary }]}>eBay API Error</Text>
+                <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{compsError}</Text>
+              </View>
+            ) : (
+              <View style={styles.emptyBox}>
+                <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No live comps found</Text>
+              </View>
+            )
           }
         />
       ) : null}
@@ -567,6 +947,16 @@ const styles = StyleSheet.create({
   setChevron: { fontSize: 22, fontWeight: '300' },
 
   // Trending
+  setupBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    gap: Spacing.md,
+  },
   trendingSection: { marginTop: Spacing.xl },
   trendingLoadingBox: { height: 160, justifyContent: 'center', alignItems: 'center' },
   trendingList: { gap: Spacing.md },
@@ -637,4 +1027,140 @@ const styles = StyleSheet.create({
     }),
   },
   toastText: { fontSize: FontSizes.sm, fontWeight: '700', letterSpacing: 0.5 },
+  
+  // Comps
+  clValueContainer: {
+    marginTop: Spacing.xl,
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  clValueLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 2, marginBottom: 4 },
+  clValueAmount: { fontSize: 42, fontWeight: '900', letterSpacing: -1 },
+  marginRow: {
+    flexDirection: 'row',
+    marginTop: Spacing.lg,
+    paddingTop: Spacing.lg,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    width: '100%',
+  },
+  marginBox: { flex: 1, alignItems: 'center', paddingVertical: Spacing.sm },
+  marginLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 1, marginBottom: 4 },
+  marginValue: { fontSize: FontSizes.md, fontWeight: '700' },
+  alertBox: {
+    marginTop: Spacing.lg,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 4,
+    borderWidth: 1,
+    width: '100%',
+    alignItems: 'center',
+  },
+  alertText: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+
+  compRow: {
+    flexDirection: 'row',
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    borderBottomWidth: 1,
+    gap: Spacing.md,
+    alignItems: 'center',
+  },
+  compImage: { width: 50, height: 50, borderRadius: 6 },
+  compTitle: { fontSize: FontSizes.sm, fontWeight: '600' },
+  compMeta: { fontSize: FontSizes.xs, marginTop: 4 },
+  compPrice: { fontSize: FontSizes.md, fontWeight: '800' },
+
+  // Hero Card Detail
+  heroCardSection: {
+    alignItems: 'center',
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  heroCardImage: {
+    width: 220,
+    height: 310,
+    borderRadius: 12,
+    ...Platform.select({
+      web: { boxShadow: '0 8px 32px rgba(0,0,0,0.6)' as any },
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.5, shadowRadius: 16 },
+      android: { elevation: 16 },
+    }),
+  },
+  heroCardPlaceholder: {
+    width: 220,
+    height: 310,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heroCardName: {
+    fontSize: FontSizes.xl,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginTop: Spacing.lg,
+    letterSpacing: -0.5,
+  },
+  heroMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: Spacing.sm,
+  },
+  heroMetaTag: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    borderWidth: 1,
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    textTransform: 'uppercase',
+  },
+  heroApiPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    marginTop: Spacing.md,
+  },
+  heroApiPriceLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  heroApiPrice: {
+    fontSize: FontSizes.lg,
+    fontWeight: '700',
+  },
+  marginPct: {
+    fontSize: 8,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
+
+  // Methodology
+  methodologyBox: {
+    marginTop: Spacing.lg,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+  },
+  methodologyTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 2,
+    marginBottom: Spacing.md,
+  },
+  methodologySteps: {
+    gap: 6,
+  },
+  methodStep: {
+    fontSize: FontSizes.xs,
+    lineHeight: 18,
+  },
 });
+

@@ -613,7 +613,7 @@ const DIGIMON_IMG = 'https://images.digimoncard.io/images/cards';
 
 export async function searchDigimon(query: string): Promise<SearchResult> {
   try {
-    const resp = await fetch(`${DIGIMON_API}/search.php?n=${encodeURIComponent(query)}&series=Digimon%20Card%20Game`);
+    const resp = await fetch(`${DIGIMON_API}/search?n=${encodeURIComponent(query)}&series=Digimon%20Card%20Game`);
     // API returns 301 redirect sometimes — handle gracefully
     if (!resp.ok && resp.status !== 301) return { game: 'digimon', total: 0, cards: [] };
     const data = await resp.json();
@@ -682,7 +682,7 @@ export async function getDigimonSets(): Promise<CardSet[]> {
 export async function getDigimonSetCards(setId: string): Promise<Card[]> {
   try {
     // Search by pack name using the set ID prefix (e.g., "BT-01" → "BT-01:")
-    const resp = await fetch(`${DIGIMON_API}/search.php?pack=${encodeURIComponent(setId)}&series=Digimon%20Card%20Game`);
+    const resp = await fetch(`${DIGIMON_API}/search?pack=${encodeURIComponent(setId)}&series=Digimon%20Card%20Game`);
     if (!resp.ok) return [];
     const data = await resp.json();
     if (!Array.isArray(data)) return [];

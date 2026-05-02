@@ -1,29 +1,57 @@
 #!/bin/bash
-# TCG Oracle v1.1.0 — Linux Build via Docker
-# Produces .deb and .rpm installers
+# ─── TCG Oracle Linux Build Script ───
+# Runs inside Docker container to produce .deb and .rpm packages
 set -e
 
-echo ">>> TCG Oracle Linux Build (Docker)"
-docker run --rm \
-  -v "$(pwd):/app" \
-  -w /app \
-  --platform linux/amd64 \
-  ubuntu:22.04 \
-  bash -c '
-    set -e
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
-    apt-get install -y -qq curl build-essential pkg-config libssl-dev \
-      libgtk-3-dev libwebkit2gtk-4.1-dev librsvg2-dev \
-      libayatana-appindicator3-dev rpm file > /dev/null 2>&1
-    curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --quiet
-    source "$HOME/.cargo/env"
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null 2>&1
-    apt-get install -y -qq nodejs > /dev/null 2>&1
-    npm install --legacy-peer-deps 2>/dev/null
-    npx expo export --platform web
-    npx @tauri-apps/cli build --bundles deb,rpm
-    echo "=== OUTPUT ==="
-    find src-tauri/target/release/bundle -name "*.deb" -o -name "*.rpm" 2>/dev/null
-  '
-echo "Done. Check src-tauri/target/release/bundle/"
+echo "═══════════════════════════════════════════"
+echo "  TCG Oracle — Linux Package Builder"
+echo "═══════════════════════════════════════════"
+
+cd /app
+
+# 1. Install JS dependencies
+echo "▸ Installing npm dependencies..."
+npm ci --prefer-offline 2>/dev/null || npm install
+
+# 2. Export the web frontend (Expo)
+echo "▸ Exporting web frontend..."
+EXPO_NO_TELEMETRY=1 CI=1 npx expo export --platform web --clear 2>&1 | tail -5
+
+# 3. Verify dist exists
+if [ ! -d "dist" ]; then
+  echo "✗ ERROR: dist/ folder not found after export"
+  exit 1
+fi
+echo "▸ Frontend exported: $(ls dist/ | wc -l) files"
+
+# 4. Build Tauri (Linux targets only — skip macOS signing, skip dmg/nsis)
+echo "▸ Building Tauri for Linux (deb + rpm)..."
+cd src-tauri
+
+# Override targets for Linux only
+TAURI_CONF_OVERRIDE='{"bundle":{"targets":["deb","rpm"]}}'
+
+cd ..
+npx tauri build --config "$TAURI_CONF_OVERRIDE" 2>&1
+
+echo ""
+echo "═══════════════════════════════════════════"
+echo "  BUILD COMPLETE"
+echo "═══════════════════════════════════════════"
+
+# 5. List output artifacts
+echo ""
+echo "▸ DEB packages:"
+find src-tauri/target/release/bundle/deb -name "*.deb" 2>/dev/null || echo "  (none found)"
+echo ""
+echo "▸ RPM packages:"
+find src-tauri/target/release/bundle/rpm -name "*.rpm" 2>/dev/null || echo "  (none found)"
+echo ""
+
+# 6. Copy to /output for easy extraction
+mkdir -p /output
+cp src-tauri/target/release/bundle/deb/*.deb /output/ 2>/dev/null || true
+cp src-tauri/target/release/bundle/rpm/*.rpm /output/ 2>/dev/null || true
+
+echo "▸ Packages copied to /output:"
+ls -lh /output/ 2>/dev/null || echo "  (empty)"

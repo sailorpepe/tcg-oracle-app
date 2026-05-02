@@ -47,3 +47,10 @@ local-cors-proxy.js
 # Environment secrets
 .env
 .env.local
+
+# Build artifacts
+linux-output/
+src-tauri/target/
+*.mp4
+*.dmg
+x-post.html

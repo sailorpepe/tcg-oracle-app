@@ -57,7 +57,7 @@ export default function ScreenTitle({ emoji, title, subtitle, showGear = false }
       {showGear && (
         <TouchableOpacity
           style={styles.gearButton}
-          onPress={() => router.push('/settings')}
+          onPress={() => router.navigate('/settings')}
           activeOpacity={0.6}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >

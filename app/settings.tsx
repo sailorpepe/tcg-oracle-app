@@ -24,7 +24,10 @@ import ScreenTitle from '@/components/ScreenTitle';
 import WallpaperBackground from '@/components/WallpaperBackground';
 import { secureEbayCredentials, hasSecureCredentials } from '@/lib/crypto-utils';
 
+import { useRouter } from 'expo-router';
+
 export default function SettingsScreen() {
+  const router = useRouter();
   const { theme, themeName, setTheme, allThemes, wallpaper, setWallpaper, clearWallpaper } = useTheme();
 
   const [hasKeys, setHasKeys] = useState(false);
@@ -32,6 +35,7 @@ export default function SettingsScreen() {
   const [secret, setSecret] = useState('');
   const [pin, setPin] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [showByokForm, setShowByokForm] = useState(false);
 
   useEffect(() => {
     hasSecureCredentials().then(setHasKeys);
@@ -99,6 +103,11 @@ export default function SettingsScreen() {
       <StatusBar barStyle={theme.statusBar} />
       <WallpaperBackground />
       <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Text style={[styles.backText, { color: theme.accent }]}>← BACK</Text>
+          </TouchableOpacity>
+        </View>
         <ScreenTitle title="Settings" subtitle="System configuration" />
 
         {/* ── Theme Picker ── */}
@@ -248,6 +257,19 @@ export default function SettingsScreen() {
                 <Text style={[styles.actionBtnText, { color: theme.textPrimary }]}>RESET KEYS</Text>
               </TouchableOpacity>
             </View>
+          ) : !showByokForm ? (
+            <View style={[styles.keyStatusCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={{ color: theme.accent, fontSize: FontSizes.md, fontWeight: '700' }}>✓ Official Oracle Network</Text>
+              <Text style={{ color: theme.textMuted, fontSize: FontSizes.xs, marginTop: 4 }}>
+                Market data is fetched via shared API credentials — no setup required.
+              </Text>
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, marginTop: Spacing.md }]}
+                onPress={() => setShowByokForm(true)}
+              >
+                <Text style={[styles.actionBtnText, { color: theme.textMuted }]}>USE YOUR OWN KEYS (Advanced)</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             <View style={[styles.keyForm, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <View style={[styles.instructionBox, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
@@ -300,7 +322,7 @@ export default function SettingsScreen() {
           <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>About</Text>
           <View style={[styles.row, { borderBottomColor: theme.border }]}>
             <Text style={[styles.rowText, { color: theme.textPrimary }]}>Version</Text>
-            <Text style={[styles.rowValue, { color: theme.textSecondary }]}>1.0.0</Text>
+            <Text style={[styles.rowValue, { color: theme.textSecondary }]}>1.2.2</Text>
           </View>
           <View style={[styles.row, { borderBottomColor: theme.border }]}>
             <Text style={[styles.rowText, { color: theme.textPrimary }]}>Data Sources</Text>
@@ -366,6 +388,19 @@ const styles = StyleSheet.create({
   content: {
     padding: Spacing.xl,
     paddingBottom: 40,
+  },
+  headerRow: {
+    marginBottom: Spacing.sm,
+    flexDirection: 'row',
+  },
+  backButton: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+  },
+  backText: {
+    fontSize: FontSizes.sm,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
 
   // Sections

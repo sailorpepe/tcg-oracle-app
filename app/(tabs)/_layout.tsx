@@ -1,7 +1,77 @@
 import React from 'react';
-import { Text, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
 import { Tabs } from 'expo-router';
 import { useTheme } from '@/lib/ThemeContext';
+
+/**
+ * Custom tab bar — React Navigation's default web renderer
+ * breaks in static/SPA Expo export (renders tabs as a vertical link list).
+ * This custom component always renders as a horizontal bottom bar.
+ */
+function CustomTabBar({ state, descriptors, navigation }: any) {
+  const { theme } = useTheme();
+
+  return (
+    <View style={[tabBarStyles.container, { backgroundColor: theme.tabBar, borderTopColor: theme.tabBarBorder }]}>
+      {state.routes.map((route: any, index: number) => {
+        const { options } = descriptors[route.key];
+        // Skip hidden tabs (settings, market) — href:null doesn't propagate to custom renderers
+        if (options.href === null || !options.tabBarIcon || route.name === 'settings' || route.name === 'market') return null;
+
+        const isFocused = state.index === index;
+        const color = isFocused ? theme.tabActive : theme.tabInactive;
+
+        const onPress = () => {
+          const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+          if (!isFocused && !event.defaultPrevented) {
+            navigation.navigate(route.name);
+          }
+        };
+
+        // Render the icon
+        const icon = options.tabBarIcon ? options.tabBarIcon({ color, focused: isFocused, size: 22 }) : null;
+
+        return (
+          <TouchableOpacity
+            key={route.key}
+            accessibilityRole="button"
+            accessibilityState={isFocused ? { selected: true } : {}}
+            onPress={onPress}
+            style={tabBarStyles.tab}
+            activeOpacity={0.7}
+          >
+            {icon}
+            <Text style={[tabBarStyles.label, { color }]}>
+              {options.title || route.name}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+const tabBarStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    height: 80,
+    paddingBottom: 24,
+    paddingTop: 8,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  label: {
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+});
 
 /**
  * Tab layout — 4 tabs: INDEX · SCAN · ORACLE · VAULT
@@ -13,24 +83,15 @@ export default function TabLayout() {
 
   return (
     <Tabs
+      tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: theme.tabActive,
         tabBarInactiveTintColor: theme.tabInactive,
-        tabBarStyle: {
-          backgroundColor: theme.tabBar,
-          borderTopColor: theme.tabBarBorder,
-          borderTopWidth: 1,
-          height: 80,
-          paddingBottom: 24,
-          paddingTop: 8,
-        },
-        tabBarLabelStyle: {
-          fontSize: 9,
-          fontWeight: '700',
-          letterSpacing: 1.5,
-          textTransform: 'uppercase',
-        },
+        // Tauri WebKit doesn't reliably hide inactive screens via display:none.
+        // unmountOnBlur guarantees only the active tab is rendered.
+        unmountOnBlur: true,
+        lazy: true,
       }}
     >
       <Tabs.Screen
@@ -61,10 +122,6 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <Text style={[styles.tabIcon, { color }]}>⬡</Text>,
         }}
       />
-      {/* Settings is now accessed via ⚙ gear icon in screen headers */}
-      <Tabs.Screen name="settings" options={{ href: null }} />
-      {/* Hide the old market tab file if it still exists */}
-      <Tabs.Screen name="market" options={{ href: null }} />
     </Tabs>
   );
 }

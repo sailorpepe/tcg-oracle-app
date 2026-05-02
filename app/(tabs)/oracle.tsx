@@ -23,6 +23,7 @@ import { createCloudEngine, saveEngineKey, getEngineKey, saveActiveEngine, getAc
 import { buildSystemPrompt } from '@/lib/inference/context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import WallpaperBackground from '@/components/WallpaperBackground';
+import { useIsFocused } from '@react-navigation/native';
 
 type ViewState = 'chat' | 'engines' | 'connect';
 
@@ -284,6 +285,12 @@ export default function OracleScreen() {
   };
 
   const activeEngine = AVAILABLE_ENGINES.find(e => e.id === activeEngineId);
+
+  // ─── Tab visibility guard (Tauri WebKit doesn't hide inactive tabs) ───
+  const isFocused = useIsFocused();
+  if (Platform.OS === 'web' && !isFocused) {
+    return <View style={{ width: 0, height: 0, overflow: 'hidden', position: 'absolute' }} />;
+  }
 
   // ─── Engines View (overlay, not a wall) ────
   if (viewState === 'engines') {

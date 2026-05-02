@@ -2,7 +2,7 @@
   "expo": {
     "name": "TCG Oracle",
     "slug": "tcg-oracle",
-    "version": "1.0.0",
+    "version": "1.2.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "tcgoracle",
@@ -22,7 +22,7 @@
     },
     "web": {
       "bundler": "metro",
-      "output": "server",
+      "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [

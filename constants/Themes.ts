@@ -282,4 +282,4 @@ export const themeMetadata: Record<ThemeName, { label: string; emoji: string; de
   light: { label: 'Light', emoji: '☀️', description: 'Clean white for daytime' },
 };
 
-export const defaultTheme: ThemeName = 'midnight';
+export const defaultTheme: ThemeName = 'light';

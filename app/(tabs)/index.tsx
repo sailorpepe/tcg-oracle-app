@@ -13,13 +13,16 @@ import {
   Animated,
   Platform,
 } from 'react-native';
+import { openUrl } from '@/lib/open-url';
 import { useTheme } from '@/lib/ThemeContext';
 import { Spacing, FontSizes, BorderRadius } from '@/constants/Theme';
-import { GAMES, getSets, getSetCards, searchCards, GameId, GameInfo, CardSet, Card } from '@/lib/api';
+import { GAMES, getSets, getSetCards, searchCards, GameId, GameInfo, CardSet, Card, fetchPriceHistory, HistoricalPrice } from '@/lib/api';
 import { addToVault } from '@/lib/vault';
 import ScreenTitle from '@/components/ScreenTitle';
 import { decryptEbayCredentials, hasSecureCredentials } from '@/lib/crypto-utils';
 import { executeEbayFetch } from '@/lib/ebay-worker';
+import SalesHistoryChart from '@/components/SalesHistoryChart';
+import TabScreenGuard from '@/components/TabScreenGuard';
 
 // PIN retrieval — checks session-only storage first, falls back to legacy persistent key
 const getSessionPin = (): string => {
@@ -57,6 +60,7 @@ export default function IndexScreen() {
   const [clResult, setClResult] = useState<any>(null);
   const [compsLoading, setCompsLoading] = useState(false);
   const [compsError, setCompsError] = useState('');
+  const [historicalPrices, setHistoricalPrices] = useState<HistoricalPrice[]>([]);
 
   // Helper: get BYOK credentials if user has set them up (optional override)
   const getBYOKCredentials = async (): Promise<{appId: string, secret: string} | null> => {
@@ -85,7 +89,9 @@ export default function IndexScreen() {
     yugioh: { term: 'Dark Magician', game: 'yugioh' },
     onepiece: { term: 'Luffy', game: 'onepiece' },
     lorcana: { term: 'Elsa', game: 'lorcana' },
-    ebay: { term: 'sports trading card' },
+    starwars: { term: 'Darth Vader', game: 'starwars' },
+    digimon: { term: 'Agumon', game: 'digimon' },
+    ebay: { term: 'comic books graded' },
   };
 
   // Toast
@@ -111,26 +117,36 @@ export default function IndexScreen() {
       const sig = SIGNATURE_QUERIES[filter];
       if (filter === 'ebay') {
         // Use BYOK if available, otherwise proxy handles it server-side
-        const creds = await getBYOKCredentials();
-        const ebayData = await executeEbayFetch(creds?.appId, creds?.secret, sig.term, true);
-        if (ebayData && ebayData.itemSummaries) {
-           const ebayCards = ebayData.itemSummaries.map((item: any) => ({
-               id: item.itemId,
-               name: item.title,
-               imageUrl: item.image?.imageUrl || '',
-               imageUrlSmall: item.image?.imageUrl || '',
-               set: 'eBay',
-               price: parseFloat(item.price?.value || '0'),
-               priceSource: 'eBay',
-               game: 'ebay' as GameId,
-           }));
-           setTrendingCards(ebayCards.slice(0, 8));
-        } else {
-           setTrendingCards([]);
+        try {
+          const creds = await getBYOKCredentials();
+          const ebayData = await executeEbayFetch(creds?.appId, creds?.secret, sig.term, true);
+          if (ebayData && ebayData.itemSummaries && ebayData.itemSummaries.length > 0) {
+             const ebayCards = ebayData.itemSummaries
+                .filter((item: any) => item.image?.imageUrl) // Only cards with images
+                .map((item: any) => ({
+                    id: item.itemId,
+                    name: item.title,
+                    imageUrl: item.image?.imageUrl || '',
+                    imageUrlSmall: item.image?.imageUrl || '',
+                    set: 'eBay',
+                    price: parseFloat(item.price?.value || '0'),
+                    priceSource: 'eBay',
+                    game: 'ebay' as GameId,
+                }));
+             setTrendingCards(ebayCards.slice(0, 8));
+             setTrendingLoading(false);
+             return;
+          }
+        } catch (e) {
+          console.warn('eBay trending failed, falling back to default', e);
         }
+        // Fallback: show Pokémon trending instead of empty state
+        const fallback = await searchCards('Charizard', 'pokemon');
+        setTrendingCards(fallback.cards.filter(c => c.imageUrl && c.price != null).slice(0, 8));
       } else {
         const result = await searchCards(sig.term, sig.game);
-        setTrendingCards(result.cards.slice(0, 8));
+        // Filter: must have image AND price (cards with broken/dark images usually lack prices too)
+        setTrendingCards(result.cards.filter(c => c.imageUrl && c.price != null).slice(0, 8));
       }
     } catch (e) {
       console.warn("Trending fetch failed", e);
@@ -244,31 +260,37 @@ export default function IndexScreen() {
     setViewMode('card-details');
     setCompsLoading(true);
     setCompsError('');
+    setHistoricalPrices([]);  // Reset
     try {
-      // Use BYOK if available, otherwise proxy handles auth server-side
+      // Fetch eBay comps and historical prices in parallel
       const creds = await getBYOKCredentials();
-      
-      // Build precision query using card name + set + collector number
       const query = card.name.trim();
       const setName = card.game !== 'ebay' ? (card.set || undefined) : undefined;
       const cardNumber = card.number || undefined;
-      
-      // Execute fetch with precision identifiers
-      let ebayData = await executeEbayFetch(creds?.appId, creds?.secret, query, false, setName, cardNumber);
-      
-      // If no results with precision query, fall back to just card name
-      if (!ebayData?.clResult && !ebayData?.itemSummaries?.length) {
-          ebayData = await executeEbayFetch(creds?.appId, creds?.secret, query, false);
-      }
-      
+
+      const [ebayData, history] = await Promise.all([
+        (async () => {
+          let data = await executeEbayFetch(creds?.appId, creds?.secret, query, false, setName, cardNumber);
+          if (!data?.clResult && !data?.itemSummaries?.length) {
+            data = await executeEbayFetch(creds?.appId, creds?.secret, query, false);
+          }
+          return data;
+        })(),
+        fetchPriceHistory(card.name, card.game as GameId).catch(() => [] as HistoricalPrice[]),
+      ]);
+
       if (ebayData && ebayData.clResult) {
-          setClResult(ebayData.clResult);
-          setComps(ebayData.clResult.comps || []);
+        setClResult(ebayData.clResult);
+        setComps(ebayData.clResult.comps || []);
       } else {
-          setComps([]);
+        setComps([]);
       }
+
+      setHistoricalPrices(history);
     } catch (e: any) {
-      setCompsError(e.message || 'Failed to fetch live comps');
+      console.error('eBay comps error:', e.message || e);
+      // TEMPORARY DEBUG: Show the actual error so we can diagnose
+      setCompsError(`DEBUG: ${e.message || 'Unknown error'}`);
     }
     setCompsLoading(false);
   };
@@ -567,6 +589,15 @@ export default function IndexScreen() {
             </View>
           )}
 
+          {/* Sales History Chart */}
+          {(comps.length >= 2 || historicalPrices.length >= 2) && (
+            <SalesHistoryChart
+              comps={comps.map(c => ({ date: c.dateSold, price: c.totalCost, isOutlier: c.isOutlier, isGraded: c.isGraded }))}
+              historicalPrices={historicalPrices}
+              theme={theme}
+            />
+          )}
+
           {/* Methodology Breakdown */}
           {clResult && (
             <View style={[styles.methodologyBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -611,9 +642,23 @@ export default function IndexScreen() {
             </View>
           )}
 
+          {/* View Sold Listings button */}
+          {selectedCard && (
+            <TouchableOpacity
+              style={[styles.ebayLinkBtn, { borderColor: theme.accent, backgroundColor: theme.accentMuted }]}
+              onPress={() => {
+                const q = encodeURIComponent(selectedCard.name + (selectedCard.set ? ` ${selectedCard.set}` : ''));
+                openUrl(`https://www.ebay.com/sch/i.html?_nkw=${q}&_sacat=0&LH_Sold=1&LH_Complete=1`);
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '700', color: theme.accent }}>◈ View Sold Listings on eBay</Text>
+            </TouchableOpacity>
+          )}
+
           <Text style={[styles.sectionLabel, { color: theme.textMuted, marginTop: Spacing.xl }]}>
             ◈ ACTIVE LISTINGS ({validCount} valid / {comps.length} total)
           </Text>
+          <Text style={[styles.emptyHint, { color: theme.textDim, marginTop: 2 }]}>Tap any listing to view on eBay</Text>
         </View>
       );
     }
@@ -659,6 +704,7 @@ export default function IndexScreen() {
   };
 
   return (
+    <TabScreenGuard>
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <WallpaperBackground />
       <StatusBar barStyle={theme.statusBar} />
@@ -686,6 +732,8 @@ export default function IndexScreen() {
           renderItem={renderSetRow}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
+          initialNumToRender={30}
+          maxToRenderPerBatch={20}
           ListEmptyComponent={
             loading ? (
               <View style={styles.loadingBox}>
@@ -707,6 +755,9 @@ export default function IndexScreen() {
           renderItem={renderResultRow}
           keyExtractor={(item, i) => `${item.game}-${item.id}-${i}`}
           contentContainerStyle={styles.listContent}
+          initialNumToRender={50}
+          maxToRenderPerBatch={30}
+          windowSize={5}
           ListEmptyComponent={
             loading ? (
               <View style={styles.loadingBox}>
@@ -728,6 +779,8 @@ export default function IndexScreen() {
           renderItem={renderResultRow}
           keyExtractor={(item, i) => `${item.game}-${item.id}-${i}`}
           contentContainerStyle={styles.listContent}
+          initialNumToRender={30}
+          maxToRenderPerBatch={20}
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
             searchLoading ? (
@@ -751,7 +804,17 @@ export default function IndexScreen() {
           ListHeaderComponent={renderHeader}
           data={comps}
           renderItem={({ item }) => (
-            <View style={[styles.compRow, { borderBottomColor: theme.border, opacity: item.isOutlier ? 0.3 : 1 }]}>
+            <TouchableOpacity
+              style={[styles.compRow, { borderBottomColor: theme.border, opacity: item.isOutlier ? 0.3 : 1 }]}
+              onPress={() => {
+                if (item.itemId) {
+                  // eBay Browse API returns "v1|178093008660|0" — extract the numeric ID
+                  const numericId = item.itemId.includes('|') ? item.itemId.split('|')[1] : item.itemId;
+                  openUrl(`https://www.ebay.com/itm/${numericId}`);
+                }
+              }}
+              activeOpacity={0.6}
+            >
               {item.imageUrl ? (
                 <Image source={{ uri: item.imageUrl }} style={styles.compImage} resizeMode="cover" />
               ) : (
@@ -781,8 +844,9 @@ export default function IndexScreen() {
                   ${item.totalCost?.toFixed(2)}
                 </Text>
                 <Text style={[styles.priceLabel, { color: theme.textDim }]}>W/ SHIP</Text>
+                <Text style={{ fontSize: 8, color: theme.accent, marginTop: 2 }}>VIEW →</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           )}
           keyExtractor={(item, i) => `comp-${i}`}
           contentContainerStyle={styles.listContent}
@@ -823,6 +887,7 @@ export default function IndexScreen() {
         </Animated.View>
       )}
     </SafeAreaView>
+    </TabScreenGuard>
   );
 }
 
@@ -1037,6 +1102,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   alertText: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  ebayLinkBtn: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    alignItems: 'center',
+    marginTop: Spacing.lg,
+  },
 
   compRow: {
     flexDirection: 'row',

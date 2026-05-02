@@ -14,15 +14,12 @@ const { width, height } = Dimensions.get('window');
 export default function WallpaperBackground() {
   const { wallpaper, theme } = useTheme();
 
-  if (!wallpaper.uri) return null;
-
   const effectMeta = BORDER_EFFECTS.find(e => e.id === wallpaper.borderEffect);
   const hasEffect = effectMeta && effectMeta.colors.length > 0;
-
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (hasEffect && wallpaper.effectsEnabled !== false) {
+    if (wallpaper.uri && hasEffect && wallpaper.effectsEnabled !== false) {
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -40,7 +37,9 @@ export default function WallpaperBackground() {
     } else {
       pulseAnim.setValue(1);
     }
-  }, [hasEffect, wallpaper.effectsEnabled]);
+  }, [wallpaper.uri, hasEffect, wallpaper.effectsEnabled]);
+
+  if (!wallpaper.uri) return null;
 
   return (
     <View style={styles.container} pointerEvents="none">

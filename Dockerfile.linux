@@ -1,0 +1,9 @@
+FROM tauri-linux:latest
+
+# Add RPM tools for .rpm package generation
+RUN apt-get update && apt-get install -y rpm && rm -rf /var/lib/apt/lists/*
+
+# Install tauri-cli (cargo-tauri)
+RUN cargo install tauri-cli --version "^2" 2>/dev/null || true
+
+WORKDIR /app

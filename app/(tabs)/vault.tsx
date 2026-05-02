@@ -19,6 +19,7 @@ import { Card, GAMES } from '@/lib/api';
 import { getVault, removeFromVault, clearVault as clearVaultStorage } from '@/lib/vault';
 import ScreenTitle from '@/components/ScreenTitle';
 import WallpaperBackground from '@/components/WallpaperBackground';
+import { useIsFocused } from '@react-navigation/native';
 
 export default function VaultScreen() {
   const { theme } = useTheme();
@@ -122,6 +123,12 @@ export default function VaultScreen() {
       </View>
     );
   };
+
+  // ─── Tab visibility guard (Tauri WebKit doesn't hide inactive tabs) ───
+  const isFocused = useIsFocused();
+  if (Platform.OS === 'web' && !isFocused) {
+    return <View style={{ width: 0, height: 0, overflow: 'hidden', position: 'absolute' }} />;
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>

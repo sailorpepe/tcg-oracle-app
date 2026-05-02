@@ -547,15 +547,15 @@ export async function searchStarWars(query: string): Promise<SearchResult> {
       cards: cards.slice(0, 20).map((c: any) => ({
         id: c.uuid || c.collector_number || String(c.external_id || Math.random()),
         name: c.subtitle ? `${c.name} - ${c.subtitle}` : c.name || '',
-        imageUrl: c.frontImageUrl || '',
-        imageUrlSmall: c.frontImageUrl || '',
-        set: c.setCode || '',
+        imageUrl: c.front_image_url || '',
+        imageUrlSmall: c.front_image_url || '',
+        set: c.set_code || '',
         rarity: c.rarity || '',
         price: undefined,
         priceSource: undefined,
         game: 'starwars' as GameId,
         type: c.type || '',
-        number: c.cardNumber || c.collector_number || '',
+        number: c.card_number || c.collector_number || '',
       })),
     };
   } catch {
@@ -591,15 +591,15 @@ export async function getStarWarsSetCards(setCode: string): Promise<Card[]> {
     return cards.map((c: any) => ({
       id: c.uuid || c.collector_number || String(c.external_id || Math.random()),
       name: c.subtitle ? `${c.name} - ${c.subtitle}` : c.name || '',
-      imageUrl: c.frontImageUrl || '',
-      imageUrlSmall: c.frontImageUrl || '',
-      set: c.setCode || setCode,
+      imageUrl: c.front_image_url || '',
+      imageUrlSmall: c.front_image_url || '',
+      set: c.set_code || setCode,
       rarity: c.rarity || '',
       price: undefined,
       priceSource: undefined,
       game: 'starwars' as GameId,
       type: c.type || '',
-      number: c.cardNumber || c.collector_number || '',
+      number: c.card_number || c.collector_number || '',
     }));
   } catch {
     return [];

@@ -24,6 +24,9 @@ import { buildSystemPrompt } from '@/lib/inference/context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import WallpaperBackground from '@/components/WallpaperBackground';
 import { useIsFocused } from '@react-navigation/native';
+import { SoulProfile, getSoul } from '@/lib/soul';
+import SoulDropZone from '@/components/SoulDropZone';
+import SoulParticlesLite from '@/components/SoulParticlesLite';
 
 type ViewState = 'chat' | 'engines' | 'connect';
 
@@ -65,6 +68,16 @@ export default function OracleScreen() {
   const [lastSentAt, setLastSentAt] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const cursorOpacity = useRef(new Animated.Value(1)).current;
+
+  // Soul state
+  const [mountedSoul, setMountedSoul] = useState<SoulProfile | null>(null);
+
+  // Load persisted soul on mount
+  useEffect(() => {
+    getSoul().then((soul) => {
+      if (soul) setMountedSoul(soul);
+    });
+  }, []);
 
   // Blinking cursor animation
   useEffect(() => {
@@ -157,7 +170,7 @@ export default function OracleScreen() {
     setStreamingContent('');
 
     try {
-      const systemPrompt = await buildSystemPrompt();
+      const systemPrompt = await buildSystemPrompt(mountedSoul);
       const chatHistory: ChatMessage[] = [
         { role: 'system', content: systemPrompt },
         ...messages
@@ -195,7 +208,7 @@ export default function OracleScreen() {
 
     setIsGenerating(false);
     setStreamingContent('');
-  }, [inputText, messages, activeEngineId, isGenerating, engineReady]);
+  }, [inputText, messages, activeEngineId, isGenerating, engineReady, mountedSoul]);
 
   // ─── Connect Engine ──────────────────────────
   const handleConnect = async () => {
@@ -436,6 +449,10 @@ export default function OracleScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <WallpaperBackground />
+      <SoulParticlesLite
+        soul={mountedSoul}
+        intensity={messages.length === 0 ? 'vivid' : 'subtle'}
+      />
       <StatusBar barStyle={theme.statusBar} />
 
       <KeyboardAvoidingView
@@ -452,7 +469,14 @@ export default function OracleScreen() {
           ListFooterComponent={renderFooter}
           ListHeaderComponent={
             <View style={styles.chatHeader}>
-              <ScreenTitle title="Oracle" subtitle="AI-powered card analysis" />
+              <ScreenTitle title="Oracle" subtitle={mountedSoul ? `Soul: ${mountedSoul.name}` : 'AI-powered card analysis'} />
+
+              {/* Soul Drop Zone — always visible in header */}
+              <SoulDropZone
+                soul={mountedSoul}
+                onSoulMounted={(soul) => setMountedSoul(soul)}
+                onSoulUnmounted={() => setMountedSoul(null)}
+              />
 
               {/* Empty state — always in chat, never a wall */}
               {messages.length === 0 && !isGenerating && (
@@ -549,7 +573,7 @@ export default function OracleScreen() {
               {engineChecking
                 ? '◆ Detecting engine...'
                 : engineReady
-                  ? `◆ ${activeEngine?.name || 'Engine'} · ${activeEngineId === 'local' ? 'On-Device · 0 data sent' : activeEngineId === 'ollama' ? 'Local Server · 0 data sent' : 'Cloud'} · tap to change`
+                  ? `◆ ${activeEngine?.name || 'Engine'} · ${activeEngineId === 'local' ? 'On-Device · 0 data sent' : activeEngineId === 'ollama' ? 'Local Server · 0 data sent' : 'Cloud'}${mountedSoul ? ` · ${mountedSoul.name}` : ''} · tap to change`
                   : '◆ No engine · tap to configure'}
             </Text>
           </TouchableOpacity>

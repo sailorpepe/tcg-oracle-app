@@ -12,15 +12,17 @@ import {
   TextInput,
   Animated,
   Platform,
+  Share,
 } from 'react-native';
 import { openUrl } from '@/lib/open-url';
 import { useTheme } from '@/lib/ThemeContext';
 import { Spacing, FontSizes, BorderRadius } from '@/constants/Theme';
-import { GAMES, getSets, getSetCards, searchCards, GameId, GameInfo, CardSet, Card, fetchPriceHistory, HistoricalPrice } from '@/lib/api';
+import { GAMES, getSets, getSetCards, searchCards, GameId, GameInfo, CardSet, Card, fetchPriceHistory, HistoricalPrice, getCardPurchaseUrl } from '@/lib/api';
 import { addToVault } from '@/lib/vault';
 import ScreenTitle from '@/components/ScreenTitle';
 import { decryptEbayCredentials, hasSecureCredentials } from '@/lib/crypto-utils';
-import { executeEbayFetch } from '@/lib/ebay-worker';
+import { executeEbayFetch, fetchEbaySoldItems } from '@/lib/ebay-worker';
+import { recordSnapshot } from '@/lib/oracle-memory';
 import SalesHistoryChart from '@/components/SalesHistoryChart';
 import TabScreenGuard from '@/components/TabScreenGuard';
 
@@ -57,6 +59,9 @@ export default function IndexScreen() {
   
   // eBay Comps
   const [comps, setComps] = useState<any[]>([]);
+  const [soldComps, setSoldComps] = useState<any[]>([]);
+  const [activeComps, setActiveComps] = useState<any[]>([]);
+  const [compsView, setCompsView] = useState<'sold' | 'active'>('sold');
   const [clResult, setClResult] = useState<any>(null);
   const [compsLoading, setCompsLoading] = useState(false);
   const [compsError, setCompsError] = useState('');
@@ -243,6 +248,34 @@ export default function IndexScreen() {
     else if (alreadyExists) showToast('SYS: Asset already in Vault');
   };
 
+  const handleShareCard = async (card: Card) => {
+    const gameInfo = GAMES.find(g => g.id === card.game);
+    const gameName = gameInfo?.name || card.game;
+    const clLine = clResult ? `\n💎 CL Value: $${clResult.clValue.toFixed(2)}` : '';
+    const compsLine = comps.length > 0 ? `\n📊 ${comps.length} eBay comps analyzed` : '';
+    const message = [
+      `${card.name}`,
+      `${gameName}${card.set ? ` · ${card.set}` : ''}${card.rarity ? ` · ${card.rarity}` : ''}`,
+      card.price != null ? `\n💰 Market: $${card.price.toFixed(2)}` : '',
+      clLine,
+      compsLine,
+      `\n🔍 Look up any card free → TCG Oracle`,
+    ].filter(Boolean).join('\n');
+
+    try {
+      if (Platform.OS === 'web') {
+        if (navigator.share) {
+          await navigator.share({ text: message });
+        } else {
+          await navigator.clipboard.writeText(message);
+          showToast('Card report copied to clipboard');
+        }
+      } else {
+        await Share.share({ message });
+      }
+    } catch {}
+  };
+
   const goBack = () => {
     if (viewMode === 'card-details') {
       setViewMode(searched ? 'results' : (selectedSet ? 'cards' : 'home'));
@@ -262,13 +295,17 @@ export default function IndexScreen() {
     setCompsError('');
     setHistoricalPrices([]);  // Reset
     try {
-      // Fetch eBay comps and historical prices in parallel
       const creds = await getBYOKCredentials();
       const query = card.name.trim();
       const setName = card.game !== 'ebay' ? (card.set || undefined) : undefined;
       const cardNumber = card.number || undefined;
 
-      const [ebayData, history] = await Promise.all([
+      // Fetch ALL three data sources in parallel:
+      // 1. Real sold data (primary for CL Value)
+      // 2. Active listings (fallback + "Active Listings" section)
+      // 3. Historical price API (chart time-series)
+      const [soldData, ebayData, history] = await Promise.all([
+        fetchEbaySoldItems(query, setName, cardNumber).catch(() => null),
         (async () => {
           let data = await executeEbayFetch(creds?.appId, creds?.secret, query, false, setName, cardNumber);
           if (!data?.clResult && !data?.itemSummaries?.length) {
@@ -279,17 +316,48 @@ export default function IndexScreen() {
         fetchPriceHistory(card.name, card.game as GameId).catch(() => [] as HistoricalPrice[]),
       ]);
 
-      if (ebayData && ebayData.clResult) {
+      // Store both sold and active comps for toggle
+      const soldItems = soldData?.clResult?.comps || [];
+      const activeItems = ebayData?.clResult?.comps || [];
+      setSoldComps(soldItems);
+      setActiveComps(activeItems);
+      setCompsView('sold');
+
+      // Prioritize REAL sold data for CL Value, fall back to Browse API
+      let finalCL = null;
+      let finalSource: 'ebay_sold' | 'ebay_browse' | 'tcg_api' = 'ebay_browse';
+      if (soldData && soldData.clResult) {
+        setClResult(soldData.clResult);
+        setComps(soldData.clResult.comps || []);
+        finalCL = soldData.clResult;
+        finalSource = 'ebay_sold';
+      } else if (ebayData && ebayData.clResult) {
         setClResult(ebayData.clResult);
         setComps(ebayData.clResult.comps || []);
+        finalCL = ebayData.clResult;
+        finalSource = 'ebay_browse';
       } else {
         setComps([]);
+      }
+
+      // ── Oracle Memory: silently record this search ──
+      if (finalCL && finalCL.clValue > 0) {
+        const comps = finalCL.comps || [];
+        const prices = comps.filter((c: any) => !c.isOutlier).map((c: any) => c.totalCost || c.price || 0).filter((p: number) => p > 0);
+        const sorted = [...prices].sort((a, b) => a - b);
+        recordSnapshot(card.name, card.game, {
+          clValue: finalCL.clValue,
+          median: sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : finalCL.clValue,
+          low: sorted.length > 0 ? sorted[0] : finalCL.clValue,
+          high: sorted.length > 0 ? sorted[sorted.length - 1] : finalCL.clValue,
+          compsCount: comps.length,
+          source: finalSource,
+        }).catch(() => {}); // Fire-and-forget, never block the UI
       }
 
       setHistoricalPrices(history);
     } catch (e: any) {
       console.error('eBay comps error:', e.message || e);
-      // TEMPORARY DEBUG: Show the actual error so we can diagnose
       setCompsError(`DEBUG: ${e.message || 'Unknown error'}`);
     }
     setCompsLoading(false);
@@ -530,24 +598,58 @@ export default function IndexScreen() {
               ) : null}
             </View>
             {selectedCard.price != null && (
-              <View style={styles.heroApiPriceRow}>
+              <TouchableOpacity
+                style={styles.heroApiPriceRow}
+                onPress={() => {
+                  const { url } = getCardPurchaseUrl(selectedCard);
+                  openUrl(url);
+                }}
+                activeOpacity={0.7}
+              >
                 <Text style={[styles.heroApiPriceLabel, { color: theme.textDim }]}>
                   {selectedCard.priceSource || 'MARKET'} PRICE
                 </Text>
                 <Text style={[styles.heroApiPrice, { color: theme.textPrimary }]}>
                   ${selectedCard.price.toFixed(2)}
                 </Text>
-              </View>
+                <Text style={{ fontSize: 8, color: theme.accent, marginTop: 2 }}>TAP TO VIEW LISTING →</Text>
+              </TouchableOpacity>
             )}
             
-            {/* Save to Vault — prominent action button */}
-            <TouchableOpacity
-              style={[styles.heroSaveBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow }]}
-              onPress={() => handleSaveToVault(selectedCard)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.heroSaveBtnText, { color: theme.accent }]}>+ SAVE TO VAULT</Text>
-            </TouchableOpacity>
+            {/* Action Buttons */}
+            <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm }}>
+              {/* Save to Vault */}
+              <TouchableOpacity
+                style={[styles.heroSaveBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow, flex: 1 }]}
+                onPress={() => handleSaveToVault(selectedCard)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.heroSaveBtnText, { color: theme.accent }]}>+ VAULT</Text>
+              </TouchableOpacity>
+
+              {/* Buy / Sell on TCGPlayer */}
+              {selectedCard.game !== 'ebay' && (
+                <TouchableOpacity
+                  style={[styles.heroSaveBtn, { backgroundColor: theme.surface, borderColor: theme.accent, flex: 1 }]}
+                  onPress={() => {
+                    const { url } = getCardPurchaseUrl(selectedCard);
+                    openUrl(url);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.heroSaveBtnText, { color: theme.accent }]}>BUY / SELL →</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Share */}
+              <TouchableOpacity
+                style={[styles.heroSaveBtn, { backgroundColor: theme.surface, borderColor: theme.border, flex: 0.6 }]}
+                onPress={() => handleShareCard(selectedCard)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.heroSaveBtnText, { color: theme.textSecondary }]}>↗ SHARE</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           
           {/* CL Value Panel */}
@@ -594,6 +696,7 @@ export default function IndexScreen() {
             <SalesHistoryChart
               comps={comps.map(c => ({ date: c.dateSold, price: c.totalCost, isOutlier: c.isOutlier, isGraded: c.isGraded }))}
               historicalPrices={historicalPrices}
+              isRealSoldData={clResult?.isRealSoldData || false}
               theme={theme}
             />
           )}
@@ -604,7 +707,7 @@ export default function IndexScreen() {
               <Text style={[styles.methodologyTitle, { color: theme.accent }]}>◈ HOW CL VALUE WAS CALCULATED</Text>
               <View style={styles.methodologySteps}>
                 <Text style={[styles.methodStep, { color: theme.textSecondary }]}>
-                  1. Pulled {comps.length} recent eBay listings for "{selectedCard.name}"
+                  1. Pulled {comps.length} {clResult.isRealSoldData ? 'recently sold' : 'active'} eBay listings for "{selectedCard.name}"
                 </Text>
                 <Text style={[styles.methodStep, { color: theme.textSecondary }]}>
                   2. Filtered proxies, oricas, digital copies, and art cards
@@ -642,23 +745,51 @@ export default function IndexScreen() {
             </View>
           )}
 
-          {/* View Sold Listings button */}
+          {/* eBay Links — Sold + Active */}
           {selectedCard && (
-            <TouchableOpacity
-              style={[styles.ebayLinkBtn, { borderColor: theme.accent, backgroundColor: theme.accentMuted }]}
-              onPress={() => {
-                const q = encodeURIComponent(selectedCard.name + (selectedCard.set ? ` ${selectedCard.set}` : ''));
-                openUrl(`https://www.ebay.com/sch/i.html?_nkw=${q}&_sacat=0&LH_Sold=1&LH_Complete=1`);
-              }}
-            >
-              <Text style={{ fontSize: 13, fontWeight: '700', color: theme.accent }}>◈ View Sold Listings on eBay</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+              <TouchableOpacity
+                style={[styles.ebayLinkBtn, { borderColor: theme.accent, backgroundColor: theme.accentMuted, flex: 1 }]}
+                onPress={() => {
+                  const q = encodeURIComponent(selectedCard.name + (selectedCard.set ? ` ${selectedCard.set}` : ''));
+                  openUrl(`https://www.ebay.com/sch/i.html?_nkw=${q}&_sacat=0&LH_Sold=1&LH_Complete=1`);
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.accent }}>◈ Sold on eBay</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.ebayLinkBtn, { borderColor: theme.border, backgroundColor: theme.surface, flex: 1 }]}
+                onPress={() => {
+                  const q = encodeURIComponent(selectedCard.name + (selectedCard.set ? ` ${selectedCard.set}` : ''));
+                  openUrl(`https://www.ebay.com/sch/i.html?_nkw=${q}&_sacat=0`);
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.textSecondary }}>◈ Active on eBay</Text>
+              </TouchableOpacity>
+            </View>
           )}
 
-          <Text style={[styles.sectionLabel, { color: theme.textMuted, marginTop: Spacing.xl }]}>
-            ◈ ACTIVE LISTINGS ({validCount} valid / {comps.length} total)
+          {/* Sold / Active Toggle */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: Spacing.xl, gap: Spacing.sm }}>
+            <TouchableOpacity
+              onPress={() => { setCompsView('sold'); setComps(soldComps); }}
+              style={[styles.compToggle, compsView === 'sold' && { backgroundColor: theme.accent + '20', borderColor: theme.accent }]}
+            >
+              <Text style={{ fontSize: 11, fontWeight: '700', color: compsView === 'sold' ? theme.accent : theme.textMuted }}>SOLD ({soldComps.length})</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => { setCompsView('active'); setComps(activeComps); }}
+              style={[styles.compToggle, compsView === 'active' && { backgroundColor: theme.accent + '20', borderColor: theme.accent }]}
+            >
+              <Text style={{ fontSize: 11, fontWeight: '700', color: compsView === 'active' ? theme.accent : theme.textMuted }}>ACTIVE ({activeComps.length})</Text>
+            </TouchableOpacity>
+            <View style={{ flex: 1 }} />
+            <Text style={[styles.emptyHint, { color: theme.textDim }]}>Tap to view on eBay</Text>
+          </View>
+
+          <Text style={[styles.sectionLabel, { color: theme.textMuted, marginTop: Spacing.sm }]}>
+            ◈ {compsView === 'sold' ? 'SOLD' : 'ACTIVE'} LISTINGS ({validCount} valid / {comps.length} total)
           </Text>
-          <Text style={[styles.emptyHint, { color: theme.textDim, marginTop: 2 }]}>Tap any listing to view on eBay</Text>
         </View>
       );
     }
@@ -1109,6 +1240,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     alignItems: 'center',
     marginTop: Spacing.lg,
+  },
+  compToggle: {
+    paddingVertical: 4,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
 
   compRow: {

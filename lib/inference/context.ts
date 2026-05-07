@@ -1,11 +1,13 @@
 /**
  * TCG Oracle — Context Builder
  * Builds the system prompt with the user's Vault data injected.
+ * Optionally injects Soul personality when an Undesirables SOUL.md is mounted.
  * All data is sanitized before injection.
  */
 
 import { getVault } from '@/lib/vault';
 import { Card } from '@/lib/api';
+import { SoulProfile, buildSoulPromptFragment } from '@/lib/soul';
 
 const MAX_CONTEXT_CARDS = 20;
 
@@ -29,7 +31,7 @@ function formatCard(card: Card): string {
   return parts.filter(Boolean).join(' ');
 }
 
-export async function buildSystemPrompt(): Promise<string> {
+export async function buildSystemPrompt(soul?: SoulProfile | null): Promise<string> {
   const vault = await getVault();
   const totalValue = vault.reduce((sum, c) => sum + (c.price || 0), 0);
 
@@ -44,5 +46,10 @@ ${vault.length > MAX_CONTEXT_CARDS ? `\n... and ${vault.length - MAX_CONTEXT_CAR
     vaultContext = '\nVAULT: Empty — no cards saved yet.';
   }
 
-  return `You are Oracle, a TCG market analyst (Pokémon, Magic, Yu-Gi-Oh!, One Piece). Be concise and direct. Keep responses under 150 words.${vaultContext}`;
+  // When a Soul is mounted, inject personality. Otherwise, default Oracle.
+  const basePrompt = soul
+    ? `You are a TCG market analyst with a unique personality. ${buildSoulPromptFragment(soul)} Keep responses under 150 words.`
+    : `You are Oracle, a TCG market analyst (Pokémon, Magic, Yu-Gi-Oh!, One Piece). Be concise and direct. Keep responses under 150 words.`;
+
+  return `${basePrompt}${vaultContext}`;
 }

@@ -46,6 +46,46 @@ export interface Card {
   game: GameId;
   type?: string;
   number?: string;
+  purchaseUrl?: string;
+}
+
+// TCGPlayer game category slugs for URL construction
+const TCGPLAYER_GAME_SLUGS: Partial<Record<GameId, string>> = {
+  pokemon: 'pokemon',
+  magic: 'magic-the-gathering',
+  yugioh: 'yugioh',
+  onepiece: 'one-piece-card-game',
+  lorcana: 'disney-lorcana',
+  starwars: 'star-wars-unlimited',
+  digimon: 'digimon-card-game',
+};
+
+/**
+ * Get the best purchase/reference URL for a card.
+ * Priority: direct API link → TCGPlayer search → eBay search
+ */
+export function getCardPurchaseUrl(card: Card): { url: string; label: string } {
+  // Use direct link if API provided one (Pokémon tcgplayer.url, Scryfall purchase_uris)
+  if (card.purchaseUrl) {
+    return { url: card.purchaseUrl, label: 'View on TCGPlayer' };
+  }
+
+  // Construct TCGPlayer search URL for supported games
+  const slug = TCGPLAYER_GAME_SLUGS[card.game];
+  if (slug) {
+    const q = encodeURIComponent(card.name);
+    return {
+      url: `https://www.tcgplayer.com/search/${slug}/product?q=${q}&view=grid`,
+      label: 'Search on TCGPlayer',
+    };
+  }
+
+  // Fallback: eBay search
+  const q = encodeURIComponent(card.name + (card.set ? ` ${card.set}` : ''));
+  return {
+    url: `https://www.ebay.com/sch/i.html?_nkw=${q}&LH_Sold=1&LH_Complete=1`,
+    label: 'View Sold on eBay',
+  };
 }
 
 export interface SearchResult {
@@ -95,6 +135,7 @@ export async function searchPokemon(query: string): Promise<SearchResult> {
       game: 'pokemon' as GameId,
       type: c.supertype || '',
       number: c.number || '',
+      purchaseUrl: c.tcgplayer?.url || undefined,
     })),
   };
 }
@@ -143,6 +184,7 @@ export async function getPokemonSetCards(setId: string): Promise<Card[]> {
       game: 'pokemon' as GameId,
       type: c.supertype || '',
       number: c.number || '',
+      purchaseUrl: c.tcgplayer?.url || undefined,
     }));
     allCards.push(...cards);
     // If we got fewer than 250, we've reached the last page
@@ -184,6 +226,7 @@ export async function searchMagic(query: string): Promise<SearchResult> {
       game: 'magic' as GameId,
       type: c.type_line || '',
       number: c.collector_number || '',
+      purchaseUrl: c.purchase_uris?.tcgplayer || c.scryfall_uri || undefined,
     })),
   };
 }
@@ -240,6 +283,7 @@ export async function searchYugioh(query: string): Promise<SearchResult> {
         game: 'yugioh' as GameId,
         type: c.type || '',
         number: '',
+        purchaseUrl: `https://www.tcgplayer.com/search/yugioh/product?q=${encodeURIComponent(c.name)}&view=grid`,
       };
     }),
   };
@@ -704,22 +748,29 @@ export async function getDigimonSetCards(setId: string): Promise<Card[]> {
   }
 }
 
-// ─── Price History API (Vercel KV) ──────────────────────
+// ─── Price History API ──────────────────────────────────
+// Priority: Mac Mini direct API (TCG cards) → Oracle Memory (all) → empty
+// 100% self-hosted. No external API keys. No middleman.
+
+import { getHistory as getOracleHistory } from './oracle-memory';
 
 export interface HistoricalPrice {
   date: string;   // "2026-04-03"
   market: number;
   low?: number;
   high?: number;
+  source?: 'mac_mini' | 'oracle_memory';
 }
 
-const HISTORY_API = 'https://the-undesirables.com/api/v1/history';
+// ── Mac Mini Direct API (via Cloudflare Tunnel) ─────────
+// Reads directly from 6.3M-row SQLite database. No Upstash middleman.
+const HISTORY_API = 'https://tcg-api.the-undesirables.com/api/v1/history';
 
 /**
- * Fetch historical price data for a card from the Vercel KV pipeline.
- * Returns empty array on failure (chart falls back to eBay comp mode).
+ * Fetch from the Mac Mini's direct SQLite API.
+ * 190K products, 270K cards, 6.3M daily price rows — served in ~5ms.
  */
-export async function fetchPriceHistory(
+async function fetchMacMiniHistory(
   cardName: string,
   game?: GameId,
   days: number = 365
@@ -735,7 +786,7 @@ export async function fetchPriceHistory(
 
     const resp = await fetch(`${HISTORY_API}?${params}`, {
       headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(8000),
     });
 
     if (!resp.ok) return [];
@@ -749,12 +800,27 @@ export async function fetchPriceHistory(
         market: h.price || h.market || 0,
         low: h.low,
         high: h.high,
+        source: 'mac_mini' as const,
       }));
     }
 
-    // Name search returns results with product_ids — fetch first match
+    // Name search — the direct API returns history inline with each result!
+    // No second fetch needed (unlike the old Upstash KV route).
     if (data.results && data.results.length > 0) {
       const firstResult = data.results[0];
+
+      // Use inline history if available (direct SQLite API includes it)
+      if (firstResult.history && Array.isArray(firstResult.history) && firstResult.history.length > 0) {
+        return firstResult.history.map((h: any) => ({
+          date: h.date,
+          market: h.price || h.market || 0,
+          low: h.low,
+          high: h.high,
+          source: 'mac_mini' as const,
+        }));
+      }
+
+      // Fallback: fetch by product_id if history wasn't inline
       if (firstResult.product_id) {
         const detailResp = await fetch(
           `${HISTORY_API}?product_id=${firstResult.product_id}&days=${days}`,
@@ -771,6 +837,7 @@ export async function fetchPriceHistory(
               market: h.price || h.market || 0,
               low: h.low,
               high: h.high,
+              source: 'mac_mini' as const,
             }));
           }
         }
@@ -779,7 +846,93 @@ export async function fetchPriceHistory(
 
     return [];
   } catch {
-    // Silently fail — chart will use eBay comp mode instead
     return [];
   }
 }
+
+// ── Oracle Memory (Self-Accumulated) ────────────────────
+
+/**
+ * Fetch from the local Oracle Memory database.
+ * Converts PriceSnapshot[] to HistoricalPrice[] for chart display.
+ */
+async function fetchOracleMemoryHistory(
+  query: string,
+  days: number = 365
+): Promise<HistoricalPrice[]> {
+  try {
+    const snapshots = await getOracleHistory(query, days);
+    return snapshots.map(s => ({
+      date: s.date,
+      market: s.clValue,
+      low: s.low,
+      high: s.high,
+      source: 'oracle_memory' as const,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// ── Main Price History Fetch (Cascading) ────────────────
+
+/**
+ * Fetch historical price data for any product.
+ *
+ * For TCG cards: Mac Mini direct API (6.3M rows) → Oracle Memory → empty
+ * For eBay general items: Oracle Memory → empty
+ *
+ * Returns empty array on total failure (chart falls back to eBay comp mode).
+ */
+export async function fetchPriceHistory(
+  cardName: string,
+  game?: GameId,
+  days: number = 365
+): Promise<HistoricalPrice[]> {
+  // For TCG cards, try the Mac Mini direct API first (190K products, 6.3M daily price rows)
+  if (game && game !== 'ebay') {
+    const macData = await fetchMacMiniHistory(cardName, game, days);
+    if (macData.length > 0) {
+      console.log(`[PriceHistory] Mac Mini returned ${macData.length} data points for "${cardName}"`);
+
+      // Merge with Oracle Memory (Oracle Memory may have more recent data)
+      const oracleData = await fetchOracleMemoryHistory(cardName, days);
+      if (oracleData.length > 0) {
+        return mergeHistories(macData, oracleData);
+      }
+
+      return macData;
+    }
+  }
+
+  // Oracle Memory — works for everything (TCG cards + eBay general items)
+  const oracleData = await fetchOracleMemoryHistory(cardName, days);
+  if (oracleData.length > 0) {
+    console.log(`[PriceHistory] Oracle Memory returned ${oracleData.length} data points for "${cardName}"`);
+    return oracleData;
+  }
+
+  return [];
+}
+
+/**
+ * Merge two history arrays, deduplicating by date.
+ * KV pipeline data takes priority on overlapping dates.
+ */
+function mergeHistories(
+  primary: HistoricalPrice[],
+  secondary: HistoricalPrice[]
+): HistoricalPrice[] {
+  const byDate = new Map<string, HistoricalPrice>();
+
+  // Secondary first (gets overwritten by primary on conflicts)
+  for (const h of secondary) {
+    byDate.set(h.date, h);
+  }
+  for (const h of primary) {
+    byDate.set(h.date, h);
+  }
+
+  return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+

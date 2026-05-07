@@ -116,6 +116,27 @@ export default function IndexScreen() {
   // Load trending on mount
   useEffect(() => { loadTrending('all'); }, []);
 
+  // Scan-to-Search: pick up search query from Scan tab navigation
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (window as any).__TCG_SCAN_SEARCH__) {
+      const scanQuery = (window as any).__TCG_SCAN_SEARCH__ as string;
+      delete (window as any).__TCG_SCAN_SEARCH__;
+      // Pre-fill the search bar and trigger search
+      setQuery(scanQuery);
+      setActiveFilter('all');
+      // Small delay to let the tab mount
+      setTimeout(() => {
+        setSearchLoading(true);
+        setSearched(true);
+        setViewMode('results');
+        searchCards(scanQuery, undefined).then((data) => {
+          setResults(data.cards);
+          setTotalResults(data.total);
+        }).catch(() => {}).finally(() => setSearchLoading(false));
+      }, 100);
+    }
+  }, []);
+
   const loadTrending = async (filter: GameId | 'all' | 'ebay') => {
     setTrendingLoading(true);
     try {

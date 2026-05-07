@@ -17,7 +17,9 @@ import { Spacing, FontSizes, BorderRadius } from '@/constants/Theme';
 import ScreenTitle from '@/components/ScreenTitle';
 import WallpaperBackground from '@/components/WallpaperBackground';
 import { analyzeCardImage } from '@/lib/inference/card-grader';
+import { identifyCard, CardIdentification } from '@/lib/inference/card-identifier';
 import { useIsFocused } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 
 // File extension allowlist for drag-and-drop (browsers may not set MIME for HEIC/HEIF)
 const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.bmp', '.gif', '.avif'];
@@ -33,6 +35,7 @@ function isAllowedImageFile(file: File): boolean {
 export default function GradeScreen() {
   const { theme } = useTheme();
   const isWeb = Platform.OS === 'web';
+  const router = useRouter();
   
   const [permission, requestPermission] = useCameraPermissions();
 
@@ -45,6 +48,10 @@ export default function GradeScreen() {
   const [analysisText, setAnalysisText] = useState('');
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
+
+  // Scan-to-Search state
+  const [identifyLoading, setIdentifyLoading] = useState(false);
+  const [identifiedCard, setIdentifiedCard] = useState<CardIdentification | null>(null);
 
   // Drop zone ref for native DOM event listeners (RN Web View doesn't handle drag events)
   const dropZoneRef = useRef<any>(null);
@@ -142,6 +149,39 @@ export default function GradeScreen() {
     setAnalysisText('');
     setAnalysisError('');
     setAnalysisLoading(false);
+    setIdentifiedCard(null);
+    setIdentifyLoading(false);
+  };
+
+  /** Navigate to Index tab with search query pre-filled */
+  const navigateToSearch = (cardName: string) => {
+    // Use global event to pass search query across tabs
+    if (typeof window !== 'undefined') {
+      (window as any).__TCG_SCAN_SEARCH__ = cardName;
+    }
+    router.push('/(tabs)' as any);
+  };
+
+  /** Run fast card identification and navigate to search */
+  const handleIdentifyAndSearch = async () => {
+    if (!capturedUri) return;
+    setIdentifyLoading(true);
+    try {
+      const result = await identifyCard(capturedUri);
+      if (result?.name) {
+        setIdentifiedCard(result);
+        navigateToSearch(result.name);
+      } else {
+        setAnalysisError('Could not identify card. Try a clearer photo.');
+      }
+    } catch (e: any) {
+      if (e.message === 'NO_ENGINE') {
+        setAnalysisError('NO_ENGINE');
+      } else {
+        setAnalysisError(e.message || 'Identification failed');
+      }
+    }
+    setIdentifyLoading(false);
   };
 
   /** Run AI-powered grading analysis on the captured image */
@@ -353,6 +393,13 @@ export default function GradeScreen() {
             <View style={{ backgroundColor: theme.accentMuted, borderRadius: 10, padding: 12, marginBottom: Spacing.md, borderWidth: 1, borderColor: theme.borderGlow }}>
               <Text style={{ fontSize: 15, fontWeight: '700', color: theme.textPrimary, marginBottom: 2 }}>{cardId}</Text>
               {gameId ? <Text style={{ fontSize: 11, color: theme.textMuted, fontFamily: 'monospace', letterSpacing: 0.5 }}>{gameId}</Text> : null}
+              <TouchableOpacity
+                style={{ marginTop: 8, backgroundColor: theme.accent + '20', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14, alignSelf: 'flex-start', borderWidth: 1, borderColor: theme.accent }}
+                onPress={() => navigateToSearch(cardId)}
+                activeOpacity={0.7}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '800', color: theme.accent, fontFamily: 'monospace' }}>⚡ SEARCH THIS CARD</Text>
+              </TouchableOpacity>
             </View>
           ) : null}
 
@@ -537,12 +584,26 @@ export default function GradeScreen() {
               {/* Analysis result or loading state */}
               {renderAnalysisResult()}
 
-              <TouchableOpacity
-                style={[styles.retakeBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow }]}
-                onPress={resetCapture}
-              >
-                <Text style={[styles.retakeBtnText, { color: theme.accent }]}>RE-SCAN</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                <TouchableOpacity
+                  style={[styles.retakeBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow, flex: 1 }]}
+                  onPress={resetCapture}
+                >
+                  <Text style={[styles.retakeBtnText, { color: theme.accent }]}>RE-SCAN</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.retakeBtn, { backgroundColor: theme.accent, borderColor: theme.accent, flex: 1, opacity: identifyLoading ? 0.6 : 1 }]}
+                  onPress={handleIdentifyAndSearch}
+                  disabled={identifyLoading}
+                  activeOpacity={0.7}
+                >
+                  {identifyLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={[styles.retakeBtnText, { color: '#fff' }]}>⚡ IDENTIFY & SEARCH</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           ) : (
             /* ── Drop zone ── */
@@ -659,12 +720,26 @@ export default function GradeScreen() {
           {/* Analysis result */}
           {renderAnalysisResult()}
 
-          <TouchableOpacity
-            style={[styles.retakeBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow }]}
-            onPress={resetCapture}
-          >
-            <Text style={[styles.retakeBtnText, { color: theme.accent }]}>RE-SCAN</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: Spacing.sm, paddingHorizontal: Spacing.xl }}>
+            <TouchableOpacity
+              style={[styles.retakeBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow, flex: 1 }]}
+              onPress={resetCapture}
+            >
+              <Text style={[styles.retakeBtnText, { color: theme.accent }]}>RE-SCAN</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.retakeBtn, { backgroundColor: theme.accent, borderColor: theme.accent, flex: 1, opacity: identifyLoading ? 0.6 : 1 }]}
+              onPress={handleIdentifyAndSearch}
+              disabled={identifyLoading}
+              activeOpacity={0.7}
+            >
+              {identifyLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={[styles.retakeBtnText, { color: '#fff' }]}>⚡ IDENTIFY & SEARCH</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       ) : (
         <View style={styles.cameraContainer}>

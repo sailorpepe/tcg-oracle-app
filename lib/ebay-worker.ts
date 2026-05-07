@@ -35,7 +35,7 @@ export interface EbayComp {
     condition: string;
     imageUrl: string;
     buyingOptions: string[];
-    dateSold: Date; // Simulated or actual
+    dateSold: Date; // Real date for sold items, simulated for active listings
     isBestOffer: boolean;
     isOutlier: boolean; // Flagged by the algorithm
     isGraded: boolean;  // PSA/BGS/CGC/SGC detected in title
@@ -52,6 +52,7 @@ export interface CLResult {
     gradedCount: number;    // How many graded cards were excluded
     rawCount: number;       // How many raw cards were used
     usedRawOnly: boolean;   // Whether graded cards were filtered out
+    isRealSoldData: boolean; // True when data comes from actual sold listings
 }
 
 export async function executeEbayFetch(
@@ -337,9 +338,329 @@ export async function executeEbayFetch(
         gradedCount: gradedComps.length,
         rawCount: rawComps.length,
         usedRawOnly,
+        isRealSoldData: false,
     };
 
     return { clResult, itemSummaries: data.itemSummaries };
+}
+
+// ─── REAL SOLD DATA ──────────────────────────────────────
+// Fetches eBay's public completed/sold search page and parses real prices + dates.
+// Desktop (Tauri): Direct fetch via HTTP plugin (CORS-free)
+// Web: Routes through /api/ebay-sold server proxy
+
+export async function fetchEbaySoldItems(
+    query?: string,
+    setName?: string,
+    cardNumber?: string
+): Promise<{ clResult: CLResult } | null> {
+    if (!query) return null;
+
+    try {
+        let soldItems: any[] = [];
+
+        // Build query with negative keywords
+        let searchQuery = query.trim();
+        if (setName && cardNumber) {
+            searchQuery = `${searchQuery} "${setName}" ${cardNumber} -sealed -lot -bundle -repack -case -booster`;
+        } else if (setName) {
+            searchQuery = `${searchQuery} "${setName}" -sealed -lot -bundle -repack -case -booster`;
+        } else {
+            searchQuery = `${searchQuery} -sealed -lot -bundle -repack -case -booster`;
+        }
+
+        // Truncate overly long queries
+        const words = searchQuery.split(/\s+/);
+        if (words.length > 12) searchQuery = words.slice(0, 12).join(' ');
+
+        if (Platform.OS === 'web' && !isTauri()) {
+            // ── Web: Use server proxy ──
+            let response: Response | null = null;
+            const payload = { query: searchQuery, setName, cardNumber };
+
+            try {
+                response = await fetch('/api/ebay-sold', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(12000),
+                });
+            } catch { response = null; }
+
+            // Fallback to hosted proxy
+            if (!response || !response.ok) {
+                try {
+                    response = await fetch('https://oracle.the-undesirables.com/api/ebay-sold', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                        signal: AbortSignal.timeout(15000),
+                    });
+                } catch { response = null; }
+            }
+
+            if (response && response.ok) {
+                const data = await response.json();
+                soldItems = data.soldItems || [];
+            }
+        } else {
+            // ── Tauri / Native: Direct fetch ──
+            const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(searchQuery)}&LH_Sold=1&LH_Complete=1&_ipg=120&rt=nc`;
+
+            const resp = await tauriFetch(ebayUrl, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
+                    'Sec-Ch-Ua': '"Chromium";v="126", "Google Chrome";v="126"',
+                    'Sec-Ch-Ua-Mobile': '?0',
+                    'Sec-Ch-Ua-Platform': '"macOS"',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Referer': 'https://www.ebay.com/',
+                } as any,
+            });
+
+            if (!resp.ok) {
+                console.warn('[fetchEbaySoldItems] eBay returned', resp.status);
+                return null;
+            }
+
+            const html = await resp.text();
+            soldItems = parseEbaySoldHtmlClient(html);
+        }
+
+        if (soldItems.length === 0) return null;
+
+        // ── Convert to EbayComp[] and run LGS Eye ──
+        return processSoldItems(soldItems);
+
+    } catch (err: any) {
+        console.warn('[fetchEbaySoldItems] Failed:', err?.message || err);
+        return null;
+    }
+}
+
+// ── Client-side HTML parser using DOMParser ──
+function parseEbaySoldHtmlClient(html: string): any[] {
+    if (typeof DOMParser === 'undefined') return []; // SSR safety
+
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const items: any[] = [];
+    const elements = doc.querySelectorAll('.s-item');
+
+    elements.forEach((el) => {
+        try {
+            // Skip eBay's placeholder first item
+            const titleEl = el.querySelector('.s-item__title');
+            if (!titleEl) return;
+            const title = (titleEl.textContent || '').trim();
+            if (!title || title === 'Shop on eBay' || title.length < 3) return;
+
+            // Price
+            const priceEl = el.querySelector('.s-item__price');
+            const priceText = (priceEl?.textContent || '').replace(/[^\d.]/g, '');
+            const price = parseFloat(priceText);
+            if (!price || price <= 0) return;
+
+            // Shipping
+            let shipping = 0;
+            const shipEl = el.querySelector('.s-item__shipping, .s-item__logisticsCost');
+            if (shipEl) {
+                const shipText = (shipEl.textContent || '');
+                if (/free/i.test(shipText)) {
+                    shipping = 0;
+                } else {
+                    const shipMatch = shipText.match(/\$([\d,.]+)/);
+                    if (shipMatch) shipping = parseFloat(shipMatch[1].replace(/,/g, ''));
+                }
+            }
+            if (shipping > 5) shipping = 5; // Cap
+
+            // Sold date
+            let dateSold = '';
+            const positiveEl = el.querySelector('.POSITIVE');
+            if (positiveEl) {
+                const dateText = (positiveEl.textContent || '').replace(/^.*Sold\s*/i, '').trim();
+                const parsed = new Date(dateText);
+                if (!isNaN(parsed.getTime())) dateSold = parsed.toISOString();
+            }
+            if (!dateSold) {
+                // Try any element mentioning "Sold"
+                const allSpans = el.querySelectorAll('span');
+                allSpans.forEach((span) => {
+                    if (dateSold) return;
+                    const text = span.textContent || '';
+                    const match = text.match(/Sold\s+(\w+\s+\d{1,2},?\s*\d{4})/i);
+                    if (match) {
+                        const parsed = new Date(match[1]);
+                        if (!isNaN(parsed.getTime())) dateSold = parsed.toISOString();
+                    }
+                });
+            }
+            if (!dateSold) dateSold = new Date().toISOString();
+
+            // Image
+            const imgEl = el.querySelector('.s-item__image-wrapper img');
+            const imageUrl = imgEl?.getAttribute('src') || '';
+
+            // Item ID
+            const linkEl = el.querySelector('a.s-item__link');
+            const href = linkEl?.getAttribute('href') || '';
+            const idMatch = href.match(/\/itm\/(\d+)/);
+            const itemId = idMatch ? idMatch[1] : `sold-${items.length}`;
+
+            // Sale type
+            const blockText = el.textContent || '';
+            const isBestOffer = /best\s*offer\s*accepted/i.test(blockText);
+            const isAuction = /\d+\s*bids?\b/i.test(blockText);
+
+            items.push({
+                title,
+                price,
+                shipping,
+                dateSold,
+                imageUrl,
+                itemId,
+                isBestOffer,
+                isAuction,
+            });
+        } catch {
+            // Skip malformed items
+        }
+    });
+
+    return items;
+}
+
+// ── Process sold items through LGS Eye algorithm ──
+function processSoldItems(soldItems: any[]): { clResult: CLResult } {
+    const GRADING_KEYWORDS = ['psa ', 'psa-', 'bgs ', 'bgs-', 'cgc ', 'cgc-', 'sgc ', 'sgc-',
+        'gem mint', 'beckett', 'gem mt', ' mint 9', ' mint 10', 'pop 1', 'black label',
+        'pristine 10', 'perfect 10'];
+
+    const isGraded = (title: string): boolean => {
+        const t = title.toLowerCase();
+        return GRADING_KEYWORDS.some(kw => t.includes(kw));
+    };
+
+    // Filter proxies/fakes, convert to EbayComp
+    let allComps: EbayComp[] = soldItems
+        .filter((item: any) => {
+            const t = item.title.toLowerCase();
+            return !t.includes('proxy') && !t.includes('orica') && !t.includes('art card') && !t.includes('digital');
+        })
+        .map((item: any) => {
+            const price = item.price;
+            const shipping = Math.min(item.shipping || 0, 5);
+            const graded = isGraded(item.title || '');
+            const isBestOffer = item.isBestOffer || false;
+
+            return {
+                itemId: item.itemId,
+                title: item.title,
+                price,
+                shipping,
+                totalCost: price + shipping,
+                condition: graded ? 'Graded' : 'Raw/Ungraded',
+                imageUrl: item.imageUrl || '',
+                buyingOptions: isBestOffer ? ['BEST_OFFER'] : item.isAuction ? ['AUCTION'] : ['FIXED_PRICE'],
+                dateSold: new Date(item.dateSold), // REAL date
+                isBestOffer,
+                isOutlier: false,
+                isGraded: graded,
+            };
+        });
+
+    // Separate graded vs raw
+    const rawComps = allComps.filter(c => !c.isGraded);
+    const gradedComps = allComps.filter(c => c.isGraded);
+    let comps = rawComps.length >= 3 ? rawComps : allComps;
+
+    // Sort chronologically (newest first)
+    comps.sort((a, b) => b.dateSold.getTime() - a.dateSold.getTime());
+
+    // Best Offer handling — these show asking price, not accepted price
+    // Apply 15% penalty since accepted offers are typically 10-20% below asking
+    const fixedPriceCount = comps.filter(c => !c.isBestOffer).length;
+    if (fixedPriceCount >= 10) {
+        comps = comps.filter(c => !c.isBestOffer);
+    } else {
+        comps = comps.map(c => {
+            if (c.isBestOffer) c.totalCost = c.totalCost * 0.85;
+            return c;
+        });
+    }
+
+    // Sort by price for outlier detection
+    comps.sort((a, b) => a.totalCost - b.totalCost);
+
+    const N = comps.length;
+    let lowLiquidity = false;
+    let isSpike = false;
+
+    if (N < 5) {
+        lowLiquidity = true;
+    } else {
+        // Spike check — with REAL dates this is actually meaningful now
+        const top15Count = Math.max(1, Math.floor(N * 0.15));
+        const top15Prices = comps.slice(-top15Count);
+        const mostRecentThreshold = new Date();
+        mostRecentThreshold.setDate(mostRecentThreshold.getDate() - 5);
+
+        const topPricesAreRecent = top15Prices.every(c => c.dateSold > mostRecentThreshold);
+        if (topPricesAreRecent && top15Prices[0].totalCost > (comps[Math.floor(N / 2)].totalCost * 1.5)) {
+            isSpike = true;
+        }
+
+        // Trimmed mean — remove top/bottom 15%
+        for (let i = 0; i < N; i++) {
+            if (i < top15Count) comps[i].isOutlier = true;
+            if (i >= N - top15Count && !isSpike) comps[i].isOutlier = true;
+        }
+    }
+
+    // Time-decay weighting — now meaningful with REAL dates
+    let weightedSum = 0;
+    let weightTotal = 0;
+    const validComps = comps.filter(c => !c.isOutlier);
+    const now = Date.now();
+
+    validComps.forEach(c => {
+        const daysAgo = (now - c.dateSold.getTime()) / (1000 * 3600 * 24);
+        const weight = Math.max(1.0, 1.5 - (daysAgo / 60));
+        weightedSum += (c.totalCost * weight);
+        weightTotal += weight;
+    });
+
+    let clValue = weightTotal > 0 ? (weightedSum / weightTotal) : 0;
+
+    // Bulk floor
+    let cashBuy = clValue * 0.65;
+    if (clValue <= 3.00) cashBuy = 0.10;
+
+    const usedRawOnly = rawComps.length >= 3;
+    const gradedCompsMarked = gradedComps.map(c => ({ ...c, isOutlier: true, condition: 'Graded (excluded)' }));
+
+    const clResult: CLResult = {
+        clValue: parseFloat(clValue.toFixed(2)),
+        cashBuy: parseFloat(cashBuy.toFixed(2)),
+        tradeCredit: parseFloat((clValue * 0.80).toFixed(2)),
+        retail: parseFloat(clValue.toFixed(2)),
+        lowLiquidity,
+        isSpike,
+        comps: [...comps, ...gradedCompsMarked].sort((a, b) => b.dateSold.getTime() - a.dateSold.getTime()),
+        gradedCount: gradedComps.length,
+        rawCount: rawComps.length,
+        usedRawOnly,
+        isRealSoldData: true,
+    };
+
+    return { clResult };
 }
 
 // Web Worker Listener (Only executes in Web Worker scope)

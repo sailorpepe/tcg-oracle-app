@@ -16,11 +16,13 @@ interface HistoricalPrice {
   market: number;
   low?: number;
   high?: number;
+  source?: 'mac_mini' | 'oracle_memory';
 }
 
 interface SalesHistoryChartProps {
   comps: SalesDataPoint[];
   historicalPrices?: HistoricalPrice[];
+  isRealSoldData?: boolean;
   theme: any;
 }
 
@@ -32,7 +34,7 @@ const BAR_GAP = 2;
 
 // ─── Component ────────────────────────────────────────────
 
-export default function SalesHistoryChart({ comps, historicalPrices, theme }: SalesHistoryChartProps) {
+export default function SalesHistoryChart({ comps, historicalPrices, isRealSoldData, theme }: SalesHistoryChartProps) {
 
   const chartData = useMemo(() => {
     // ─── Resolve data source ───────────────────────────
@@ -139,8 +141,21 @@ export default function SalesHistoryChart({ comps, historicalPrices, theme }: Sa
   const fmtShort = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(v < 10 ? 2 : 0);
 
   // Header / source text
-  const sourceText = chartData.isHistorical ? 'TCGCSV Market Data' : 'eBay Sold Listings';
-  const headerText = chartData.isHistorical ? '◈ PRICE HISTORY' : '◈ RECENT SALES';
+  const primarySource = chartData.isHistorical && historicalPrices?.length
+    ? historicalPrices[0]?.source
+    : undefined;
+  const sourceText = chartData.isHistorical
+    ? primarySource === 'oracle_memory'
+      ? 'Oracle Memory (Your Searches)'
+      : 'TCG Oracle Pipeline'
+    : isRealSoldData
+      ? 'eBay Sold Listings'
+      : 'eBay Active Listings';
+  const headerText = chartData.isHistorical
+    ? '◈ PRICE HISTORY'
+    : isRealSoldData
+      ? '◈ SOLD HISTORY'
+      : '◈ MARKET DEPTH';
 
   return (
     <View style={[styles.container, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -244,7 +259,7 @@ export default function SalesHistoryChart({ comps, historicalPrices, theme }: Sa
           {chartData.bars[0].date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
         </Text>
         <Text style={[styles.xLabelCenter, { color: theme.textMuted }]}>
-          {chartData.count} sales · {chartData.daySpan} days
+          {chartData.count} {chartData.isHistorical ? 'data points' : 'sales'} · {chartData.daySpan} days
         </Text>
         <Text style={[styles.xLabel, { color: theme.textDim }]}>
           {chartData.bars[chartData.bars.length - 1].date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}

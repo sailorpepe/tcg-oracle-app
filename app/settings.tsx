@@ -65,6 +65,7 @@ export default function SettingsScreen() {
     setIsSaving(false);
   };
 
+
   const pickImage = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -316,6 +317,7 @@ export default function SettingsScreen() {
             </View>
           )}
         </View>
+
 
         {/* ── About ── */}
         <View style={styles.section}>

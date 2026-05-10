@@ -41,6 +41,7 @@ import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
 
 import { ThemeProvider } from '@/lib/ThemeContext';
+import LicenseAgreement, { hasAcceptedEULA } from '@/components/LicenseAgreement';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -95,6 +96,15 @@ export default function RootLayout() {
 }
 
 function RootLayoutNav() {
+  const [eulaAccepted, setEulaAccepted] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    hasAcceptedEULA().then(setEulaAccepted);
+  }, []);
+
+  // Don't render anything until we've checked EULA status
+  if (eulaAccepted === null) return null;
+
   return (
     <ThemeProvider>
       <NavThemeProvider value={DarkTheme}>
@@ -102,6 +112,9 @@ function RootLayoutNav() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="settings" options={{ headerShown: false, presentation: 'card' }} />
         </Stack>
+        {!eulaAccepted && (
+          <LicenseAgreement onAccept={() => setEulaAccepted(true)} />
+        )}
       </NavThemeProvider>
     </ThemeProvider>
   );

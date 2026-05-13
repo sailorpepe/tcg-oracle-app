@@ -20,6 +20,8 @@ import { analyzeCardImage } from '@/lib/inference/card-grader';
 import { identifyCard, CardIdentification } from '@/lib/inference/card-identifier';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { hasXAIKey, speakText, buildGradeNarration, XAIVoice, DEFAULT_VOICE } from '@/lib/xai-voice';
 
 // File extension allowlist for drag-and-drop (browsers may not set MIME for HEIC/HEIF)
 const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.bmp', '.gif', '.avif'];
@@ -56,6 +58,22 @@ export default function GradeScreen() {
   // Drop zone ref for native DOM event listeners (RN Web View doesn't handle drag events)
   const dropZoneRef = useRef<any>(null);
   const isFocused = useIsFocused();
+
+  // Voice narration state
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [selectedVoice, setSelectedVoice] = useState<XAIVoice>(DEFAULT_VOICE);
+
+  useEffect(() => {
+    hasXAIKey().then(setVoiceAvailable);
+    AsyncStorage.getItem('@tcg_oracle_xai_voice').then(v => {
+      if (v) setSelectedVoice(v as XAIVoice);
+    });
+    AsyncStorage.getItem('@tcg_oracle_voice_enabled').then(v => {
+      if (v !== null) setVoiceEnabled(v === 'true');
+    });
+  }, []);
 
   // Attach native DOM drag listeners on the DOCUMENT level
   // (React Native Web's View refs are unreliable after tab switches)
@@ -488,6 +506,43 @@ export default function GradeScreen() {
               <Text style={{ fontSize: 10, color: theme.textDim, textAlign: 'center', marginTop: Spacing.sm, fontStyle: 'italic' }}>
                 AI estimate only — not a substitute for professional grading
               </Text>
+
+              {/* Voice narration button */}
+              {voiceAvailable && (
+                <TouchableOpacity
+                  style={[styles.retakeBtn, {
+                    backgroundColor: isSpeaking ? theme.accent : theme.accentMuted,
+                    borderColor: theme.borderGlow,
+                    marginTop: Spacing.md,
+                    opacity: isSpeaking ? 0.7 : 1,
+                  }]}
+                  onPress={async () => {
+                    if (isSpeaking) return;
+                    setIsSpeaking(true);
+                    try {
+                      const narration = buildGradeNarration({
+                        cardName: cardId || undefined,
+                        grade,
+                        centering,
+                        corners,
+                        edges,
+                        surface,
+                        summary: summary || undefined,
+                      });
+                      await speakText(narration, selectedVoice);
+                    } catch (e: any) {
+                      console.warn('Voice narration failed:', e.message);
+                    }
+                    setIsSpeaking(false);
+                  }}
+                  disabled={isSpeaking}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.retakeBtnText, { color: isSpeaking ? '#fff' : theme.accent }]}>
+                    {isSpeaking ? '🔊 SPEAKING...' : '🔊 LISTEN TO REPORT'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </>
           ) : (
             /* Fallback: raw text while streaming or if parsing fails */

@@ -23,6 +23,7 @@ import { BORDER_EFFECTS, BorderEffect } from '@/lib/wallpaper';
 import ScreenTitle from '@/components/ScreenTitle';
 import WallpaperBackground from '@/components/WallpaperBackground';
 import { secureEbayCredentials, hasSecureCredentials } from '@/lib/crypto-utils';
+import { saveXAIKey, getXAIKey, removeXAIKey, hasXAIKey, XAI_VOICES, XAIVoice, DEFAULT_VOICE, speakText } from '@/lib/xai-voice';
 
 import { useRouter } from 'expo-router';
 
@@ -37,8 +38,23 @@ export default function SettingsScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [showByokForm, setShowByokForm] = useState(false);
 
+  // xAI Voice state
+  const [hasXaiKey, setHasXaiKey] = useState(false);
+  const [xaiKeyInput, setXaiKeyInput] = useState('');
+  const [showXaiForm, setShowXaiForm] = useState(false);
+  const [selectedVoice, setSelectedVoice] = useState<XAIVoice>(DEFAULT_VOICE);
+  const [isTesting, setIsTesting] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+
   useEffect(() => {
     hasSecureCredentials().then(setHasKeys);
+    hasXAIKey().then(setHasXaiKey);
+    AsyncStorage.getItem('@tcg_oracle_xai_voice').then(v => {
+      if (v) setSelectedVoice(v as XAIVoice);
+    });
+    AsyncStorage.getItem('@tcg_oracle_voice_enabled').then(v => {
+      if (v !== null) setVoiceEnabled(v === 'true');
+    });
   }, []);
 
   const handleSaveKeys = async () => {
@@ -318,6 +334,158 @@ export default function SettingsScreen() {
           )}
         </View>
 
+
+        {/* ── xAI Voice AI ── */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>Voice AI (xAI Grok)</Text>
+          <Text style={[styles.sectionHint, { color: theme.textDim }]}>
+            Enable AI voice narration for grading results. Powered by xAI's TTS engine. Bring your own API key — ~$0.05/min.
+          </Text>
+
+          {hasXaiKey ? (
+            <View style={[styles.keyStatusCard, { backgroundColor: theme.accentDim, borderColor: theme.accent }]}>
+              <Text style={{ color: theme.accent, fontSize: FontSizes.md, fontWeight: '700' }}>✓ xAI Key Connected</Text>
+              <Text style={{ color: theme.textMuted, fontSize: FontSizes.xs, marginTop: 4 }}>
+                Voice narration is available on grading results.
+              </Text>
+
+              {/* Voice selector */}
+              <Text style={[styles.subsectionTitle, { color: theme.textMuted, marginTop: Spacing.md }]}>Voice</Text>
+              <View style={styles.effectGrid}>
+                {XAI_VOICES.map(v => {
+                  const isActive = selectedVoice === v.id;
+                  return (
+                    <TouchableOpacity
+                      key={v.id}
+                      style={[
+                        styles.effectCard,
+                        { backgroundColor: theme.surface, borderColor: theme.border },
+                        isActive && { borderColor: theme.accent, backgroundColor: theme.accentDim },
+                      ]}
+                      onPress={() => {
+                        setSelectedVoice(v.id);
+                        AsyncStorage.setItem('@tcg_oracle_xai_voice', v.id);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.effectEmoji}>🎙</Text>
+                      <Text style={[
+                        styles.effectLabel,
+                        { color: isActive ? theme.accent : theme.textPrimary },
+                      ]}>
+                        {v.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Voice toggle */}
+              <View style={[styles.row, { borderBottomColor: theme.border, marginTop: Spacing.md }]}>
+                <View>
+                  <Text style={[styles.rowText, { color: theme.textPrimary }]}>Auto-Narrate Grades</Text>
+                  <Text style={[{ color: theme.textMuted, fontSize: FontSizes.xs, marginTop: 4 }]}>
+                    Automatically read grading results aloud
+                  </Text>
+                </View>
+                <Switch
+                  value={voiceEnabled}
+                  onValueChange={(val) => {
+                    setVoiceEnabled(val);
+                    AsyncStorage.setItem('@tcg_oracle_voice_enabled', String(val));
+                  }}
+                  trackColor={{ false: theme.surfaceElevated, true: theme.accentMuted }}
+                  thumbColor={voiceEnabled ? theme.accent : theme.textMuted}
+                />
+              </View>
+
+              {/* Test voice button */}
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow, marginTop: Spacing.md, opacity: isTesting ? 0.6 : 1 }]}
+                onPress={async () => {
+                  setIsTesting(true);
+                  try {
+                    await speakText('Grading analysis complete. This card scores a nine point five out of ten. Gem Mint condition.', selectedVoice);
+                  } catch (e: any) {
+                    Alert.alert('Voice Test Failed', e.message || 'Check your API key.');
+                  }
+                  setIsTesting(false);
+                }}
+                disabled={isTesting}
+              >
+                <Text style={[styles.actionBtnText, { color: theme.accent }]}>
+                  {isTesting ? 'SPEAKING...' : '🔊 TEST VOICE'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Remove key */}
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: theme.surface, borderColor: theme.border, marginTop: Spacing.sm }]}
+                onPress={async () => {
+                  await removeXAIKey();
+                  setHasXaiKey(false);
+                }}
+              >
+                <Text style={[styles.actionBtnText, { color: theme.textMuted }]}>REMOVE KEY</Text>
+              </TouchableOpacity>
+            </View>
+          ) : !showXaiForm ? (
+            <View style={[styles.keyStatusCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={{ color: theme.textMuted, fontSize: FontSizes.md, fontWeight: '700' }}>Voice Narration Disabled</Text>
+              <Text style={{ color: theme.textMuted, fontSize: FontSizes.xs, marginTop: 4 }}>
+                Connect your xAI API key to enable voice narration on grading results.
+              </Text>
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow, marginTop: Spacing.md }]}
+                onPress={() => setShowXaiForm(true)}
+              >
+                <Text style={[styles.actionBtnText, { color: theme.accent }]}>CONNECT xAI KEY</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={[styles.keyForm, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={[styles.instructionBox, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
+                <Text style={[styles.instructionTitle, { color: theme.textPrimary }]}>How to get your xAI API key:</Text>
+                <Text style={[styles.instructionStep, { color: theme.textSecondary }]}>1. Go to <Text style={{ color: theme.accent, textDecorationLine: 'underline' }} onPress={() => Linking.openURL('https://console.x.ai')}>console.x.ai</Text> and sign in.</Text>
+                <Text style={[styles.instructionStep, { color: theme.textSecondary }]}>2. Navigate to <Text style={{ fontWeight: 'bold' }}>API Keys</Text> and create a new key.</Text>
+                <Text style={[styles.instructionStep, { color: theme.textSecondary }]}>3. Copy the key and paste it below.</Text>
+                <Text style={[styles.instructionStep, { color: theme.textSecondary, marginTop: Spacing.xs }]}>Cost: ~$0.05/min of generated speech. Pay-as-you-go, no subscription.</Text>
+              </View>
+              <TextInput
+                style={[styles.input, { color: theme.textPrimary, borderColor: theme.border }]}
+                placeholder="xai-xxxxxxxxxxxxxxxxxxxx"
+                placeholderTextColor={theme.textSecondary}
+                secureTextEntry
+                value={xaiKeyInput}
+                onChangeText={setXaiKeyInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={[styles.saveBtn, { backgroundColor: theme.accent }]}
+                onPress={async () => {
+                  if (!xaiKeyInput || xaiKeyInput.length < 10) {
+                    Alert.alert('Error', 'Please enter a valid xAI API key.');
+                    return;
+                  }
+                  await saveXAIKey(xaiKeyInput);
+                  setHasXaiKey(true);
+                  setXaiKeyInput('');
+                  setShowXaiForm(false);
+                  Alert.alert('Connected', 'xAI Voice is now active. Test it on the Grade tab!');
+                }}
+              >
+                <Text style={styles.saveBtnText}>SAVE KEY</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: theme.surface, borderColor: theme.border, marginTop: Spacing.xs }]}
+                onPress={() => setShowXaiForm(false)}
+              >
+                <Text style={[styles.actionBtnText, { color: theme.textMuted }]}>CANCEL</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
 
         {/* ── About ── */}
         <View style={styles.section}>

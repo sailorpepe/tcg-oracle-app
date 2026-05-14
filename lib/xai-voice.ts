@@ -197,56 +197,107 @@ export function buildGradeNarration(gradeData: {
   return parts.join(' ');
 }
 
-// ─── Local TTS Fallback (Web Speech API) ──────────────────────
+// ─── Psychometric Verbal Engine (Local TTS) ───────────────────
+// Ported from undesirables-ui/ChatInterface.js
+// Uses Web Speech API with OCEAN personality → voice mapping.
+// Each of the 4,444 souls gets a unique voice via psychometric hash.
 // Free, offline, built into WebKit. No API key needed.
-// OCEAN personality scores map to pitch and rate parameters.
 
-export interface OceanVoiceParams {
-  pitch: number;    // 0.1–2.0 (1.0 = normal)
-  rate: number;     // 0.5–2.0 (1.0 = normal)
+export interface OceanScores {
+  neuroticism?: number;      // 0-100
+  extraversion?: number;     // 0-100
+  openness?: number;         // 0-100
+  agreeableness?: number;    // 0-100
+  conscientiousness?: number; // 0-100
 }
 
+// Novelty voices — assigned to low-agreeableness souls (contrarians, edgelords)
+const NOVELTY_VOICES = new Set([
+  'Zarvox', 'Trinoids', 'Bells', 'Bubbles', 'Cellos', 'Whisper',
+  'Organ', 'Bad News', 'Good News', 'Bahh', 'Boing', 'Wobble',
+  'Jester', 'Albert', 'Deranged', 'Hysterical',
+]);
+
+// Voices that sound too old/robotic — excluded from pool
+const EXCLUDED_VOICES = new Set(['Fred', 'Ralph', 'Agnes']);
+
+// Heartbeat ref to prevent WebKit 14-second speech cutoff
+let ttsHeartbeat: ReturnType<typeof setInterval> | null = null;
+
 /**
- * Map OCEAN personality scores to Web Speech API voice parameters.
- * Creates a unique vocal signature based on the Big Five traits.
+ * Sanitize text for TTS — strip code blocks, markdown, limit length.
+ * Prevents AI from reading massive code blocks aloud.
  */
-export function oceanToVoiceParams(soul?: {
-  neuroticism?: number;
-  extraversion?: number;
-  openness?: number;
-  agreeableness?: number;
-  conscientiousness?: number;
-} | null): OceanVoiceParams {
-  if (!soul) return { pitch: 1.0, rate: 1.0 };
-
-  const n = (soul.neuroticism ?? 50) / 100;
-  const e = (soul.extraversion ?? 50) / 100;
-  const o = (soul.openness ?? 50) / 100;
-  const a = (soul.agreeableness ?? 50) / 100;
-  const c = (soul.conscientiousness ?? 50) / 100;
-
-  // Pitch: higher extraversion + neuroticism → higher pitch
-  // Lower agreeableness → lower pitch (more commanding)
-  const pitch = 0.8 + (e * 0.4) + (n * 0.2) - ((1 - a) * 0.15) + (o * 0.1);
-
-  // Rate: higher extraversion → faster speech
-  // Higher conscientiousness → slightly slower (measured)
-  // Higher neuroticism → slightly faster (anxious energy)
-  const rate = 0.8 + (e * 0.3) + (n * 0.1) - (c * 0.1);
-
-  return {
-    pitch: Math.max(0.5, Math.min(1.8, pitch)),
-    rate: Math.max(0.7, Math.min(1.5, rate)),
-  };
+function sanitizeForTTS(text: string): string {
+  let s = text;
+  // Remove code blocks
+  s = s.replace(/```[\s\S]*?(?:```|$)/g, ' [Code block processed.] ');
+  // Remove JSON arrays/objects
+  s = s.replace(/\[\s*\{[\s\S]*?\}\s*\]/g, ' [Data processed.] ');
+  // Cut off at first raw code line
+  const codeIdx = s.search(/\n\s*(const |let |var |function |import |require\(|def |class )/);
+  if (codeIdx > 0) s = s.substring(0, codeIdx) + ' [Analysis complete.]';
+  // Limit length
+  if (s.length > 800) s = s.substring(0, 800) + '... [Remaining data attached].';
+  // Clean markdown symbols
+  s = s.replace(/[#*`_[\]>]/g, '').trim();
+  return s;
 }
 
 /**
- * Speak text using the browser's built-in Web Speech API.
- * Returns a cleanup function. Works offline, no API key needed.
+ * Psychometric voice selection — deterministic hash from OCEAN scores
+ * creates a unique voice for each of the 4,444 souls.
+ *
+ * Low agreeableness (<35) → novelty voices (Zarvox, Trinoids, etc.)
+ * Everyone else → natural voices (Samantha, Daniel, Karen, etc.)
+ */
+function selectVoiceFromOCEAN(
+  voices: SpeechSynthesisVoice[],
+  soul: OceanScores,
+): SpeechSynthesisVoice {
+  const E = (soul.extraversion ?? 50) / 100;
+  const N = (soul.neuroticism ?? 50) / 100;
+  const C = (soul.conscientiousness ?? 50) / 100;
+  const A = soul.agreeableness ?? 50;
+
+  // Filter to English voices, excluding robotic ones
+  const allEnglish = voices.filter(
+    v => v.lang?.startsWith('en-') && !EXCLUDED_VOICES.has(v.name.split(' ')[0])
+  );
+
+  // Deduplicate by base name (macOS lists variants)
+  const unique: SpeechSynthesisVoice[] = [];
+  const seen = new Set<string>();
+  for (const v of allEnglish) {
+    const base = v.name.split(' ')[0];
+    if (!seen.has(base)) { seen.add(base); unique.push(v); }
+  }
+
+  if (unique.length === 0) return voices[0]; // absolute fallback
+
+  // Psychometric hash — deterministic per soul
+  const psychHash = Math.abs(Math.floor((E + N * 2 + C) * 100));
+
+  if (A < 35) {
+    // Low agreeableness → novelty/weird voices
+    const novelty = unique.filter(v => NOVELTY_VOICES.has(v.name.split(' ')[0]));
+    if (novelty.length > 0) return novelty[psychHash % novelty.length];
+  }
+
+  // Normal: pick from natural voices
+  const natural = unique.filter(v => !NOVELTY_VOICES.has(v.name.split(' ')[0]));
+  const pool = natural.length > 0 ? natural : unique;
+  return pool[psychHash % pool.length];
+}
+
+/**
+ * Speak text using the Psychometric Verbal Engine.
+ * Each soul gets a unique voice, pitch, rate, and volume based on OCEAN scores.
+ * Includes the WebKit 14-second heartbeat fix from the desktop app.
  */
 export function speakTextLocal(
   text: string,
-  params?: OceanVoiceParams,
+  soul?: OceanScores | null,
 ): Promise<{ stop: () => void } | null> {
   return new Promise((resolve) => {
     if (typeof window === 'undefined' || !window.speechSynthesis) {
@@ -254,43 +305,70 @@ export function speakTextLocal(
       return;
     }
 
+    const synth = window.speechSynthesis;
+
     // Stop any existing speech
-    window.speechSynthesis.cancel();
+    synth.cancel();
+    if (ttsHeartbeat) { clearInterval(ttsHeartbeat); ttsHeartbeat = null; }
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.pitch = params?.pitch ?? 1.0;
-    utterance.rate = params?.rate ?? 1.0;
-    utterance.volume = 1.0;
+    const sanitized = sanitizeForTTS(text);
+    if (!sanitized) { resolve(null); return; }
 
-    // Try to pick a good English voice
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v => v.name.includes('Samantha'))   // macOS
-      || voices.find(v => v.name.includes('Karen'))                   // macOS alt
-      || voices.find(v => v.lang.startsWith('en') && v.localService)  // any local English
-      || voices.find(v => v.lang.startsWith('en'));                    // any English
-    if (preferred) utterance.voice = preferred;
+    const voices = synth.getVoices();
+    if (!voices || voices.length === 0) { resolve(null); return; }
+
+    const O = (soul?.openness ?? 50) / 100;
+    const E = (soul?.extraversion ?? 50) / 100;
+
+    // Select voice from psychometric hash
+    const selectedVoice = soul
+      ? selectVoiceFromOCEAN(voices, soul)
+      : voices.find(v => v.name === 'Samantha') || voices.find(v => v.lang?.startsWith('en')) || voices[0];
+
+    const utterance = new SpeechSynthesisUtterance(sanitized);
+    utterance.voice = selectedVoice;
+
+    // OCEAN → vocal parameters (matches desktop app exactly)
+    utterance.pitch = Math.min(1.12, Math.max(0.90, 0.90 + (O * 0.22)));
+    utterance.rate  = Math.min(1.10, Math.max(0.88, 0.88 + (E * 0.22)));
+    utterance.volume = Math.min(1.0, Math.max(0.55, 0.65 + (O * 0.30)));
 
     const stopFn = {
       stop: () => {
-        window.speechSynthesis.cancel();
+        synth.cancel();
+        if (ttsHeartbeat) { clearInterval(ttsHeartbeat); ttsHeartbeat = null; }
       },
     };
 
-    utterance.onend = () => resolve(stopFn);
-    utterance.onerror = () => resolve(stopFn);
+    // WebKit 14-second heartbeat — prevents speech from cutting off
+    utterance.onstart = () => {
+      if (ttsHeartbeat) clearInterval(ttsHeartbeat);
+      ttsHeartbeat = setInterval(() => {
+        if (synth.speaking) { synth.pause(); synth.resume(); }
+      }, 10000);
+    };
 
-    window.speechSynthesis.speak(utterance);
+    utterance.onend = () => {
+      if (ttsHeartbeat) { clearInterval(ttsHeartbeat); ttsHeartbeat = null; }
+      resolve(stopFn);
+    };
+    utterance.onerror = () => {
+      if (ttsHeartbeat) { clearInterval(ttsHeartbeat); ttsHeartbeat = null; }
+      resolve(stopFn);
+    };
+
+    synth.speak(utterance);
   });
 }
 
 /**
- * Unified speak function: tries xAI TTS first, falls back to local Web Speech API.
+ * Unified speak function: tries xAI TTS first, falls back to Psychometric Verbal Engine.
  * Always returns a stop function. Works for all users regardless of API key.
  */
 export async function speakAny(
   text: string,
   voice: XAIVoice = DEFAULT_VOICE,
-  soul?: { neuroticism?: number; extraversion?: number; openness?: number; agreeableness?: number; conscientiousness?: number } | null,
+  soul?: OceanScores | null,
 ): Promise<{ stop: () => void } | null> {
   // Try xAI first if key exists
   const hasKey = await hasXAIKey();
@@ -302,7 +380,10 @@ export async function speakAny(
     }
   }
 
-  // Fallback: local Web Speech API with OCEAN personality mapping
-  const params = oceanToVoiceParams(soul);
-  return speakTextLocal(text, params);
+  // Fallback: Psychometric Verbal Engine with OCEAN personality mapping
+  return speakTextLocal(text, soul);
 }
+
+
+
+

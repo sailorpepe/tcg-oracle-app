@@ -8,7 +8,7 @@
  * (mapped to UNDSR archetypes in voice_config)
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setSecureItem, getSecureItem, deleteSecureItem } from './secure-keys';
 import { Platform } from 'react-native';
 
 const XAI_TTS_URL = 'https://api.x.ai/v1/audio/speech';
@@ -26,18 +26,18 @@ export const XAI_VOICES: { id: XAIVoice; label: string; description: string }[] 
 
 export const DEFAULT_VOICE: XAIVoice = 'sage';
 
-// ─── Key Management ───
+// ─── Key Management (SecureStore on native, localStorage on web) ───
 
 export async function saveXAIKey(key: string): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_KEY, key.trim());
+  await setSecureItem(STORAGE_KEY, key.trim());
 }
 
 export async function getXAIKey(): Promise<string | null> {
-  return AsyncStorage.getItem(STORAGE_KEY);
+  return getSecureItem(STORAGE_KEY);
 }
 
 export async function removeXAIKey(): Promise<void> {
-  await AsyncStorage.removeItem(STORAGE_KEY);
+  await deleteSecureItem(STORAGE_KEY);
 }
 
 export async function hasXAIKey(): Promise<boolean> {

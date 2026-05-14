@@ -27,6 +27,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { SoulProfile, getSoul } from '@/lib/soul';
 import SoulDropZone from '@/components/SoulDropZone';
 import SoulParticlesLite from '@/components/SoulParticlesLite';
+import { speakText, hasXAIKey, XAIVoice, XAI_VOICES } from '@/lib/xai-voice';
 
 type ViewState = 'chat' | 'engines' | 'connect';
 
@@ -72,11 +73,39 @@ export default function OracleScreen() {
   // Soul state
   const [mountedSoul, setMountedSoul] = useState<SoulProfile | null>(null);
 
-  // Load persisted soul on mount
+  // Voice state
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const activeVoiceRef = useRef<{ stop: () => void } | null>(null);
+
+  /**
+   * OCEAN → xAI Voice Mapping
+   * Maps Big Five personality scores to the best-fitting xAI voice.
+   */
+  function getVoiceForSoul(soul: SoulProfile | null): XAIVoice {
+    if (!soul) return 'eve'; // Default Oracle voice
+    // High extraversion + low neuroticism → bold Leo
+    if (soul.extraversion > 70 && soul.neuroticism < 50) return 'leo';
+    // Low agreeableness → commanding Rex (the contrarian)
+    if (soul.agreeableness < 30) return 'rex';
+    // High agreeableness + high openness → warm Ara
+    if (soul.agreeableness > 60 && soul.openness > 60) return 'ara';
+    // High conscientiousness → steady Sal (the stoic)
+    if (soul.conscientiousness > 70) return 'sal';
+    // High neuroticism → expressive Eve
+    if (soul.neuroticism > 70) return 'eve';
+    // Default fallback
+    return 'eve';
+  }
+
+  // Load persisted soul + check voice availability
   useEffect(() => {
     getSoul().then((soul) => {
       if (soul) setMountedSoul(soul);
     });
+    hasXAIKey().then(setVoiceAvailable);
+    AsyncStorage.getItem('@tcg_oracle_voice_enabled').then(v => setVoiceEnabled(v === 'true'));
   }, []);
 
   // Blinking cursor animation
@@ -196,6 +225,16 @@ export default function OracleScreen() {
       };
       setMessages(prev => [...prev, assistantMsg]);
 
+      // Auto-narrate if voice is enabled
+      if (voiceAvailable && voiceEnabled && accumulated) {
+        const voice = getVoiceForSoul(mountedSoul);
+        setSpeakingId(assistantMsg.id);
+        speakText(accumulated, voice)
+          .then(player => { activeVoiceRef.current = player; })
+          .catch(() => {})
+          .finally(() => setSpeakingId(null));
+      }
+
     } catch (error: any) {
       const errorMsg: DisplayMessage = {
         id: `error-${Date.now()}`,
@@ -265,6 +304,7 @@ export default function OracleScreen() {
 
   const renderMessage = ({ item }: { item: DisplayMessage }) => {
     const isUser = item.role === 'user';
+    const isSpeaking = speakingId === item.id;
     return (
       <View style={[
         styles.messageBubble,
@@ -274,9 +314,35 @@ export default function OracleScreen() {
           borderColor: isUser ? theme.borderGlow : theme.border,
         }
       ]}>
-        <Text style={[styles.messageRole, { color: isUser ? theme.accent : theme.textMuted }]}>
-          {isUser ? 'YOU' : 'ORACLE'}
-        </Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={[styles.messageRole, { color: isUser ? theme.accent : theme.textMuted }]}>
+            {isUser ? 'YOU' : 'ORACLE'}
+          </Text>
+          {!isUser && voiceAvailable && (
+            <TouchableOpacity
+              onPress={() => {
+                if (isSpeaking && activeVoiceRef.current) {
+                  activeVoiceRef.current.stop();
+                  activeVoiceRef.current = null;
+                  setSpeakingId(null);
+                } else {
+                  const voice = getVoiceForSoul(mountedSoul);
+                  setSpeakingId(item.id);
+                  speakText(item.content, voice)
+                    .then(player => { activeVoiceRef.current = player; })
+                    .catch(() => {})
+                    .finally(() => setSpeakingId(null));
+                }
+              }}
+              activeOpacity={0.6}
+              style={{ padding: 4 }}
+            >
+              <Text style={{ fontSize: 14, color: isSpeaking ? theme.accent : theme.textMuted }}>
+                {isSpeaking ? '⏹' : '🔊'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <Text style={[styles.messageText, { color: theme.textPrimary }]}>{item.content}</Text>
       </View>
     );

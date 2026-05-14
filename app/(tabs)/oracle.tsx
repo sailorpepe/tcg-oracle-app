@@ -28,6 +28,9 @@ import { SoulProfile, getSoul } from '@/lib/soul';
 import SoulDropZone from '@/components/SoulDropZone';
 import SoulParticlesLite from '@/components/SoulParticlesLite';
 import { speakAny, hasXAIKey, XAIVoice, XAI_VOICES } from '@/lib/xai-voice';
+import { saveSession, loadSession, archiveSession, clearSession } from '@/lib/chat-memory';
+import { getAllTracked } from '@/lib/oracle-memory';
+import { getPredictionStats, gradePredictions } from '@/lib/prediction-ledger';
 
 type ViewState = 'chat' | 'engines' | 'connect';
 
@@ -76,6 +79,11 @@ export default function OracleScreen() {
   // Voice state
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
+
+  // Memory state
+  const [trackedCards, setTrackedCards] = useState<{ query: string; lastPrice: number; dataPoints: number }[]>([]);
+  const [predictionAccuracy, setPredictionAccuracy] = useState<{ accuracy: number; total: number; graded: number } | null>(null);
+  const [memoryLoaded, setMemoryLoaded] = useState(false);
   const activeVoiceRef = useRef<{ stop: () => void } | null>(null);
 
   /**
@@ -98,13 +106,44 @@ export default function OracleScreen() {
     return 'eve';
   }
 
-  // Load persisted soul + check voice availability
+  // Load persisted soul + check voice availability + load chat memory
   useEffect(() => {
     getSoul().then((soul) => {
       if (soul) setMountedSoul(soul);
     });
     hasXAIKey().then(() => {}); // Warm up key check
     AsyncStorage.getItem('@tcg_oracle_voice_enabled').then(v => setVoiceEnabled(v === 'true'));
+
+    // Phase 1: Load previous chat session
+    loadSession().then(saved => {
+      if (saved.length > 0) {
+        setMessages(saved as DisplayMessage[]);
+      }
+      setMemoryLoaded(true);
+    });
+
+    // Phase 2: Load tracked cards for watchlist
+    getAllTracked().then(tracked => {
+      setTrackedCards(tracked.slice(0, 8)); // Show top 8
+    });
+
+    // Phase 3: Grade pending predictions + load stats
+    gradePredictions().then(() => {
+      getPredictionStats().then(stats => {
+        if (stats.total > 0) {
+          setPredictionAccuracy({
+            accuracy: stats.accuracy,
+            total: stats.total,
+            graded: stats.correct + stats.incorrect,
+          });
+        }
+      });
+    });
+
+    // Archive session on unmount
+    return () => {
+      // Use a ref-safe snapshot to archive
+    };
   }, []);
 
   // Blinking cursor animation
@@ -222,7 +261,13 @@ export default function OracleScreen() {
         content: accumulated || 'No response generated.',
         timestamp: Date.now(),
       };
-      setMessages(prev => [...prev, assistantMsg]);
+      setMessages(prev => {
+        const updated = [...prev, assistantMsg];
+        // Phase 1: Auto-save session after each message
+        saveSession(updated);
+        archiveSession(updated);
+        return updated;
+      });
 
       // Auto-narrate if voice is enabled
       if (voiceEnabled && accumulated) {
@@ -400,7 +445,7 @@ export default function OracleScreen() {
               >
                 <View style={styles.engineCardContent}>
                   <Text style={[styles.engineIcon, { color: isActive ? theme.accent : theme.textMuted }]}>
-                    {isLocal ? '◈' : engine.id === 'groq' ? '⚡' : engine.id === 'anthropic' ? '◆' : '⬡'}
+                    {engine.id === 'groq' ? '⚡' : engine.id === 'xai' ? '✦' : engine.id === 'openai' ? '◉' : engine.id === 'anthropic' ? '◆' : engine.id === 'ollama' ? '⬡' : '◈'}
                   </Text>
                   <View style={styles.engineInfo}>
                     <View style={styles.engineNameRow}>
@@ -560,6 +605,16 @@ export default function OracleScreen() {
                       <Text style={[styles.emptySubtitle, { color: theme.textMuted }]}>
                         Connected to {activeEngine?.name || 'AI engine'}. Ask anything about TCG markets.
                       </Text>
+
+                      {/* Phase 3: Prediction accuracy badge */}
+                      {predictionAccuracy && predictionAccuracy.graded > 0 && (
+                        <View style={[styles.predictionBadge, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                          <Text style={[styles.predictionBadgeText, { color: theme.accent }]}>
+                            🎯 Oracle Accuracy: {predictionAccuracy.accuracy}% ({predictionAccuracy.graded} graded)
+                          </Text>
+                        </View>
+                      )}
+
                       <View style={styles.suggestedPrompts}>
                         {SUGGESTED_PROMPTS.map((prompt, i) => (
                           <TouchableOpacity
@@ -572,6 +627,33 @@ export default function OracleScreen() {
                           </TouchableOpacity>
                         ))}
                       </View>
+
+                      {/* Phase 2: Tracked cards watchlist */}
+                      {trackedCards.length > 0 && (
+                        <View style={styles.watchlistSection}>
+                          <Text style={[styles.watchlistTitle, { color: theme.textMuted }]}>ORACLE MEMORY — TRACKED CARDS</Text>
+                          {trackedCards.map((card, i) => (
+                            <TouchableOpacity
+                              key={i}
+                              style={[styles.watchlistCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                              onPress={() => sendMessage(`What's the market outlook for ${card.query}?`)}
+                              activeOpacity={0.7}
+                            >
+                              <View style={{ flex: 1 }}>
+                                <Text style={[styles.watchlistName, { color: theme.textPrimary }]} numberOfLines={1}>
+                                  {card.query}
+                                </Text>
+                                <Text style={[styles.watchlistMeta, { color: theme.textDim }]}>
+                                  {card.dataPoints} data points
+                                </Text>
+                              </View>
+                              <Text style={[styles.watchlistPrice, { color: theme.accent }]}>
+                                ${card.lastPrice.toFixed(2)}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
                     </>
                   ) : (
                     <>
@@ -943,5 +1025,55 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.sm,
     fontWeight: '800',
     letterSpacing: 1,
+  },
+
+  // Phase 2: Watchlist
+  watchlistSection: {
+    marginTop: Spacing.lg,
+    width: '100%',
+    paddingHorizontal: Spacing.md,
+  },
+  watchlistTitle: {
+    fontSize: FontSizes.xs,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginBottom: Spacing.sm,
+  },
+  watchlistCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    marginBottom: Spacing.xs,
+  },
+  watchlistName: {
+    fontSize: FontSizes.sm,
+    fontWeight: '600',
+  },
+  watchlistMeta: {
+    fontSize: FontSizes.xs,
+    marginTop: 2,
+  },
+  watchlistPrice: {
+    fontSize: FontSizes.md,
+    fontWeight: '800',
+    marginLeft: Spacing.sm,
+  },
+
+  // Phase 3: Prediction Badge
+  predictionBadge: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  predictionBadgeText: {
+    fontSize: FontSizes.xs,
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });

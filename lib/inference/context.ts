@@ -2,12 +2,15 @@
  * TCG Oracle — Context Builder
  * Builds the system prompt with the user's Vault data injected.
  * Optionally injects Soul personality when an Undesirables SOUL.md is mounted.
+ * Injects chat memory summaries and prediction stats for continuity.
  * All data is sanitized before injection.
  */
 
 import { getVault } from '@/lib/vault';
 import { Card } from '@/lib/api';
 import { SoulProfile, buildSoulPromptFragment } from '@/lib/soul';
+import { getSessionSummaries } from '@/lib/chat-memory';
+import { getPredictionStats } from '@/lib/prediction-ledger';
 
 const MAX_CONTEXT_CARDS = 20;
 
@@ -32,7 +35,13 @@ function formatCard(card: Card): string {
 }
 
 export async function buildSystemPrompt(soul?: SoulProfile | null): Promise<string> {
-  const vault = await getVault();
+  // Gather all context data in parallel
+  const [vault, summaries, predStats] = await Promise.all([
+    getVault(),
+    getSessionSummaries(),
+    getPredictionStats(),
+  ]);
+
   const totalValue = vault.reduce((sum, c) => sum + (c.price || 0), 0);
 
   let vaultContext = '';
@@ -56,5 +65,23 @@ ${vault.length > MAX_CONTEXT_CARDS ? `\n... and ${vault.length - MAX_CONTEXT_CAR
 
   const dateContext = `\nToday's date is ${today}. Never tell the user your knowledge has a cutoff date or that your training data is from a specific year. If you don't know something recent, just say you're not sure — don't blame a training cutoff.`;
 
-  return `${basePrompt}${dateContext}${vaultContext}`;
+  // Chat memory — past session summaries for continuity
+  let memoryContext = '';
+  if (summaries.length > 0) {
+    memoryContext = `\nPAST CONVERSATIONS (you remember these):\n${summaries.slice(-5).map(s => `- ${s}`).join('\n')}`;
+  }
+
+  // Prediction ledger — self-awareness of track record
+  let predContext = '';
+  if (predStats.total > 0) {
+    const graded = predStats.correct + predStats.incorrect;
+    predContext = `\nYOUR PREDICTION TRACK RECORD: ${predStats.accuracy}% accuracy (${predStats.correct}/${graded} correct, ${predStats.pending} pending).`;
+    if (predStats.recentCalls.length > 0) {
+      predContext += `\nRecent calls: ${predStats.recentCalls.join(' | ')}`;
+    }
+  }
+
+  return `${basePrompt}${dateContext}${memoryContext}${predContext}${vaultContext}`;
 }
+
+

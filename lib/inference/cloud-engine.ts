@@ -5,12 +5,14 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setSecureItem, getSecureItem, deleteSecureItem } from '../secure-keys';
 import { InferenceEngine, ChatMessage, InferenceOptions, EngineId } from './engine';
 
 const KEY_PREFIX = '@tcg_oracle_engine_';
 const ENGINE_SELECTION_KEY = '@tcg_oracle_active_engine';
 
-// ─── Key Storage (AsyncStorage for now, expo-secure-store for native builds) ───
+// ─── Key Storage (SecureStore on native, localStorage on web) ───
+// API keys use secure storage. Engine selection is non-sensitive → AsyncStorage.
 
 /** Validate Ollama endpoints to prevent SSRF */
 function validateOllamaEndpoint(url: string): boolean {
@@ -31,15 +33,15 @@ export async function saveEngineKey(engineId: EngineId, key: string): Promise<vo
   if (engineId === 'ollama' && !validateOllamaEndpoint(key)) {
     throw new Error('Invalid Ollama endpoint URL');
   }
-  await AsyncStorage.setItem(`${KEY_PREFIX}${engineId}`, key);
+  await setSecureItem(`${KEY_PREFIX}${engineId}`, key);
 }
 
 export async function getEngineKey(engineId: EngineId): Promise<string | null> {
-  return AsyncStorage.getItem(`${KEY_PREFIX}${engineId}`);
+  return getSecureItem(`${KEY_PREFIX}${engineId}`);
 }
 
 export async function removeEngineKey(engineId: EngineId): Promise<void> {
-  await AsyncStorage.removeItem(`${KEY_PREFIX}${engineId}`);
+  await deleteSecureItem(`${KEY_PREFIX}${engineId}`);
 }
 
 export async function saveActiveEngine(engineId: EngineId): Promise<void> {

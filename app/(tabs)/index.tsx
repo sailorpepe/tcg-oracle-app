@@ -277,7 +277,7 @@ export default function IndexScreen() {
     const message = [
       `${card.name}`,
       `${gameName}${card.set ? ` · ${card.set}` : ''}${card.rarity ? ` · ${card.rarity}` : ''}`,
-      card.price != null ? `\n💰 Market: $${card.price.toFixed(2)}` : '',
+      card.price != null ? `\n💰 TCG Market: $${card.price.toFixed(2)}` : '',
       clLine,
       compsLine,
       `\n🔍 Look up any card free → TCG Oracle`,
@@ -628,12 +628,13 @@ export default function IndexScreen() {
                 activeOpacity={0.7}
               >
                 <Text style={[styles.heroApiPriceLabel, { color: theme.textDim }]}>
-                  {selectedCard.priceSource || 'MARKET'} PRICE
+                  TCG {selectedCard.priceSource || 'MARKET'}
                 </Text>
                 <Text style={[styles.heroApiPrice, { color: theme.textPrimary }]}>
                   ${selectedCard.price.toFixed(2)}
                 </Text>
-                <Text style={{ fontSize: 8, color: theme.accent, marginTop: 2 }}>TAP TO VIEW LISTING →</Text>
+                <Text style={{ fontSize: 8, color: theme.textDim, marginTop: 2 }}>ROLLING AVG · NOT A SALE PRICE</Text>
+                <Text style={{ fontSize: 8, color: theme.accent, marginTop: 1 }}>TAP TO VIEW LISTING →</Text>
               </TouchableOpacity>
             )}
             

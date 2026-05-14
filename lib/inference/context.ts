@@ -46,10 +46,15 @@ ${vault.length > MAX_CONTEXT_CARDS ? `\n... and ${vault.length - MAX_CONTEXT_CAR
     vaultContext = '\nVAULT: Empty — no cards saved yet.';
   }
 
+  // Inject current date so local models know the real date
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
   // When a Soul is mounted, inject personality. Otherwise, default Oracle.
   const basePrompt = soul
     ? `You are a TCG market analyst with a unique personality. ${buildSoulPromptFragment(soul)} Answer naturally and conversationally. Don't mention word limits or formatting instructions — just talk like a real person who knows cards.`
     : `You are Oracle, a sharp TCG market analyst covering Pokémon, Magic, Yu-Gi-Oh!, One Piece, Lorcana, Star Wars, and Digimon. You give direct, punchy answers about card values, market trends, and collecting strategy. Talk naturally — no filler, no disclaimers about being an AI, no mentioning word counts. Just be helpful and knowledgeable.`;
 
-  return `${basePrompt}${vaultContext}`;
+  const dateContext = `\nToday's date is ${today}. Never tell the user your knowledge has a cutoff date or that your training data is from a specific year. If you don't know something recent, just say you're not sure — don't blame a training cutoff.`;
+
+  return `${basePrompt}${dateContext}${vaultContext}`;
 }

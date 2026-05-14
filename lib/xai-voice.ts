@@ -4,27 +4,27 @@
  * BYOK (Bring Your Own Key) — users provide their own xAI API key.
  * Cost: ~$0.05/min of generated audio.
  * 
- * Supported voices: Ash, Ballad, Coral, Sage, Shimmer
+ * Supported voices: Eve, Ara, Rex, Sal, Leo
  * (mapped to UNDSR archetypes in voice_config)
  */
 
 import { setSecureItem, getSecureItem, deleteSecureItem } from './secure-keys';
 import { Platform } from 'react-native';
 
-const XAI_TTS_URL = 'https://api.x.ai/v1/audio/speech';
+const XAI_TTS_URL = 'https://api.x.ai/v1/tts';
 const STORAGE_KEY = '@tcg_oracle_xai_key';
 
-export type XAIVoice = 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'fable' | 'nova' | 'onyx' | 'sage' | 'shimmer';
+export type XAIVoice = 'eve' | 'ara' | 'rex' | 'sal' | 'leo';
 
 export const XAI_VOICES: { id: XAIVoice; label: string; description: string }[] = [
-  { id: 'ash',     label: 'Ash',     description: 'Confident, clear — The Contrarian' },
-  { id: 'ballad',  label: 'Ballad',  description: 'Warm, storytelling — The Empath' },
-  { id: 'coral',   label: 'Coral',   description: 'Natural, conversational — The Strategist' },
-  { id: 'sage',    label: 'Sage',    description: 'Smooth, balanced — The Stoic' },
-  { id: 'shimmer', label: 'Shimmer', description: 'Energetic, upbeat — The Wildcard' },
+  { id: 'eve',  label: 'Eve',  description: 'Expressive, default — The Oracle' },
+  { id: 'ara',  label: 'Ara',  description: 'Warm, articulate — The Empath' },
+  { id: 'rex',  label: 'Rex',  description: 'Bold, commanding — The Contrarian' },
+  { id: 'sal',  label: 'Sal',  description: 'Smooth, balanced — The Stoic' },
+  { id: 'leo',  label: 'Leo',  description: 'Energetic, upbeat — The Wildcard' },
 ];
 
-export const DEFAULT_VOICE: XAIVoice = 'sage';
+export const DEFAULT_VOICE: XAIVoice = 'eve';
 
 // ─── Key Management (SecureStore on native, localStorage on web) ───
 
@@ -55,7 +55,7 @@ export interface TTSOptions {
 }
 
 /**
- * Generate speech audio from text using xAI's TTS API.
+ * Generate speech audio from text using xAI's Grok TTS API.
  * Returns a blob URL that can be played with <audio> or expo-av.
  */
 export async function synthesizeSpeech(options: TTSOptions): Promise<string> {
@@ -80,11 +80,9 @@ export async function synthesizeSpeech(options: TTSOptions): Promise<string> {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'tts-1',
-      input: safeText,
-      voice,
-      speed,
-      response_format: responseFormat,
+      text: safeText,
+      voice_id: voice,
+      language: 'en',
     }),
   });
 
@@ -115,12 +113,28 @@ export async function synthesizeSpeech(options: TTSOptions): Promise<string> {
  * Play TTS audio in the browser/Tauri.
  * Returns a cleanup function to stop playback.
  */
-export function playAudioBlob(blobUrl: string): { stop: () => void; audio: HTMLAudioElement } {
+export function playAudioBlob(blobUrl: string): { stop: () => void; audio: HTMLAudioElement; done: Promise<void> } {
   const audio = new Audio(blobUrl);
-  audio.play().catch(e => console.warn('Audio playback failed:', e));
+  
+  const done = new Promise<void>((resolve, reject) => {
+    audio.onended = () => {
+      URL.revokeObjectURL(blobUrl);
+      resolve();
+    };
+    audio.onerror = (e) => {
+      URL.revokeObjectURL(blobUrl);
+      reject(new Error(`Audio playback error: ${e}`));
+    };
+  });
+  
+  audio.play().catch(e => {
+    console.warn('Audio playback failed:', e);
+    URL.revokeObjectURL(blobUrl);
+  });
   
   return {
     audio,
+    done,
     stop: () => {
       audio.pause();
       audio.currentTime = 0;
@@ -137,13 +151,11 @@ export async function speakText(
   text: string,
   voice: XAIVoice = DEFAULT_VOICE,
 ): Promise<{ stop: () => void } | null> {
-  try {
-    const blobUrl = await synthesizeSpeech({ text, voice });
-    return playAudioBlob(blobUrl);
-  } catch (e: any) {
-    console.warn('TTS failed:', e.message);
-    return null;
-  }
+  const blobUrl = await synthesizeSpeech({ text, voice });
+  const player = playAudioBlob(blobUrl);
+  // Wait for audio to finish playing before returning
+  await player.done;
+  return player;
 }
 
 /**

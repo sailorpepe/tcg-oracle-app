@@ -1,4 +1,4 @@
-FROM rust:1.82-bookworm
+FROM rust:1.86-bookworm
 
 # System deps for Tauri Linux build
 RUN apt-get update && apt-get install -y \
@@ -21,14 +21,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && npm install -g npm@latest
 
-# Download pre-built tauri-cli binary instead of compiling (avoids OOM on emulated arch)
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then \
-      wget -q "https://github.com/nicjhan/cargo-binstall-prebuilt/releases/download/v1.0.0/cargo-binstall-v1.0.0-x86_64-unknown-linux-gnu.tgz" -O /tmp/binstall.tgz || true; \
-    fi && \
-    cargo install cargo-binstall 2>/dev/null || true && \
-    cargo binstall tauri-cli --version "2.11.1" -y 2>/dev/null || \
-    CARGO_BUILD_JOBS=2 cargo install tauri-cli --version "2.11.1"
+# Install tauri-cli via pre-built npm package (avoids cargo compile OOM)
+RUN npm install -g @tauri-apps/cli@2
 
 WORKDIR /app
 
@@ -42,5 +36,5 @@ COPY . .
 # Build frontend
 RUN npx expo export --platform web
 
-# Build DEB + RPM
-CMD ["cargo", "tauri", "build", "--bundles", "deb,rpm"]
+# Build DEB + RPM using npx tauri instead of cargo tauri
+CMD ["npx", "tauri", "build", "--bundles", "deb,rpm"]

@@ -67,6 +67,16 @@ const ENGINE_CONFIGS: Record<string, EngineAPIConfig> = {
     defaultModel: 'llama-3.3-70b-versatile',
     format: 'openai',
   },
+  xai: {
+    baseUrl: 'https://api.x.ai/v1',
+    defaultModel: 'grok-3-mini-fast',
+    format: 'openai',
+  },
+  openai: {
+    baseUrl: 'https://api.openai.com/v1',
+    defaultModel: 'gpt-4o-mini',
+    format: 'openai',
+  },
   anthropic: {
     baseUrl: 'https://api.anthropic.com/v1',
     defaultModel: 'claude-3-5-haiku-20241022',
@@ -77,7 +87,7 @@ const ENGINE_CONFIGS: Record<string, EngineAPIConfig> = {
 export function createCloudEngine(engineId: EngineId): InferenceEngine {
   return {
     id: engineId,
-    name: engineId === 'anthropic' ? 'Claude' : engineId === 'groq' ? 'Groq' : 'Ollama',
+    name: engineId === 'anthropic' ? 'Claude' : engineId === 'groq' ? 'Groq' : engineId === 'xai' ? 'xAI Grok' : engineId === 'openai' ? 'OpenAI' : 'Ollama',
 
     async isReady(): Promise<boolean> {
       if (engineId === 'ollama') {
@@ -200,11 +210,30 @@ async function ollamaStream(
   const endpoint = await getEngineKey('ollama');
   if (!endpoint) throw new Error('Ollama endpoint not configured');
 
-  // Disable qwen3 thinking mode by appending /no_think to the last user message.
-  // This prevents the model from generating a hidden <think>...</think> block
-  // which can double or triple response time.
+  // Auto-detect the best installed model (instead of hardcoding)
+  let model = 'hermes3:8b'; // default recommendation
+  try {
+    const tagsResp = await fetch(`${endpoint}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    if (tagsResp.ok) {
+      const tagsData = await tagsResp.json();
+      const models: string[] = (tagsData.models || []).map((m: any) => m.name);
+      // Priority: hermes3 > hermes > llama > gemma > qwen > first available
+      const preferred = [
+        models.find(m => m.startsWith('hermes3')),
+        models.find(m => m.startsWith('hermes')),
+        models.find(m => m.includes('llama')),
+        models.find(m => m.includes('gemma')),
+        models.find(m => m.includes('qwen')),
+        models[0],
+      ];
+      model = preferred.find(Boolean) || model;
+    }
+  } catch { /* use default */ }
+
+  // Disable qwen3 thinking mode by appending /no_think to the last user message
+  const isQwen = model.includes('qwen');
   const processedMessages = messages.map((m, i) => {
-    if (m.role === 'user' && i === messages.length - 1) {
+    if (isQwen && m.role === 'user' && i === messages.length - 1) {
       return { role: m.role, content: m.content + ' /no_think' };
     }
     return { role: m.role, content: m.content };
@@ -214,7 +243,7 @@ async function ollamaStream(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'qwen3:8b',
+      model,
       messages: processedMessages,
       stream: true,
       options: {

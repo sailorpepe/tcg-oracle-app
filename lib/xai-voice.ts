@@ -196,3 +196,113 @@ export function buildGradeNarration(gradeData: {
 
   return parts.join(' ');
 }
+
+// ─── Local TTS Fallback (Web Speech API) ──────────────────────
+// Free, offline, built into WebKit. No API key needed.
+// OCEAN personality scores map to pitch and rate parameters.
+
+export interface OceanVoiceParams {
+  pitch: number;    // 0.1–2.0 (1.0 = normal)
+  rate: number;     // 0.5–2.0 (1.0 = normal)
+}
+
+/**
+ * Map OCEAN personality scores to Web Speech API voice parameters.
+ * Creates a unique vocal signature based on the Big Five traits.
+ */
+export function oceanToVoiceParams(soul?: {
+  neuroticism?: number;
+  extraversion?: number;
+  openness?: number;
+  agreeableness?: number;
+  conscientiousness?: number;
+} | null): OceanVoiceParams {
+  if (!soul) return { pitch: 1.0, rate: 1.0 };
+
+  const n = (soul.neuroticism ?? 50) / 100;
+  const e = (soul.extraversion ?? 50) / 100;
+  const o = (soul.openness ?? 50) / 100;
+  const a = (soul.agreeableness ?? 50) / 100;
+  const c = (soul.conscientiousness ?? 50) / 100;
+
+  // Pitch: higher extraversion + neuroticism → higher pitch
+  // Lower agreeableness → lower pitch (more commanding)
+  const pitch = 0.8 + (e * 0.4) + (n * 0.2) - ((1 - a) * 0.15) + (o * 0.1);
+
+  // Rate: higher extraversion → faster speech
+  // Higher conscientiousness → slightly slower (measured)
+  // Higher neuroticism → slightly faster (anxious energy)
+  const rate = 0.8 + (e * 0.3) + (n * 0.1) - (c * 0.1);
+
+  return {
+    pitch: Math.max(0.5, Math.min(1.8, pitch)),
+    rate: Math.max(0.7, Math.min(1.5, rate)),
+  };
+}
+
+/**
+ * Speak text using the browser's built-in Web Speech API.
+ * Returns a cleanup function. Works offline, no API key needed.
+ */
+export function speakTextLocal(
+  text: string,
+  params?: OceanVoiceParams,
+): Promise<{ stop: () => void } | null> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      resolve(null);
+      return;
+    }
+
+    // Stop any existing speech
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.pitch = params?.pitch ?? 1.0;
+    utterance.rate = params?.rate ?? 1.0;
+    utterance.volume = 1.0;
+
+    // Try to pick a good English voice
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v => v.name.includes('Samantha'))   // macOS
+      || voices.find(v => v.name.includes('Karen'))                   // macOS alt
+      || voices.find(v => v.lang.startsWith('en') && v.localService)  // any local English
+      || voices.find(v => v.lang.startsWith('en'));                    // any English
+    if (preferred) utterance.voice = preferred;
+
+    const stopFn = {
+      stop: () => {
+        window.speechSynthesis.cancel();
+      },
+    };
+
+    utterance.onend = () => resolve(stopFn);
+    utterance.onerror = () => resolve(stopFn);
+
+    window.speechSynthesis.speak(utterance);
+  });
+}
+
+/**
+ * Unified speak function: tries xAI TTS first, falls back to local Web Speech API.
+ * Always returns a stop function. Works for all users regardless of API key.
+ */
+export async function speakAny(
+  text: string,
+  voice: XAIVoice = DEFAULT_VOICE,
+  soul?: { neuroticism?: number; extraversion?: number; openness?: number; agreeableness?: number; conscientiousness?: number } | null,
+): Promise<{ stop: () => void } | null> {
+  // Try xAI first if key exists
+  const hasKey = await hasXAIKey();
+  if (hasKey) {
+    try {
+      return await speakText(text, voice);
+    } catch {
+      // xAI failed — fall through to local
+    }
+  }
+
+  // Fallback: local Web Speech API with OCEAN personality mapping
+  const params = oceanToVoiceParams(soul);
+  return speakTextLocal(text, params);
+}

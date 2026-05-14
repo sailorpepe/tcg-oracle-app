@@ -27,7 +27,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { SoulProfile, getSoul } from '@/lib/soul';
 import SoulDropZone from '@/components/SoulDropZone';
 import SoulParticlesLite from '@/components/SoulParticlesLite';
-import { speakText, hasXAIKey, XAIVoice, XAI_VOICES } from '@/lib/xai-voice';
+import { speakAny, hasXAIKey, XAIVoice, XAI_VOICES } from '@/lib/xai-voice';
 
 type ViewState = 'chat' | 'engines' | 'connect';
 
@@ -74,7 +74,6 @@ export default function OracleScreen() {
   const [mountedSoul, setMountedSoul] = useState<SoulProfile | null>(null);
 
   // Voice state
-  const [voiceAvailable, setVoiceAvailable] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const activeVoiceRef = useRef<{ stop: () => void } | null>(null);
@@ -104,7 +103,7 @@ export default function OracleScreen() {
     getSoul().then((soul) => {
       if (soul) setMountedSoul(soul);
     });
-    hasXAIKey().then(setVoiceAvailable);
+    hasXAIKey().then(() => {}); // Warm up key check
     AsyncStorage.getItem('@tcg_oracle_voice_enabled').then(v => setVoiceEnabled(v === 'true'));
   }, []);
 
@@ -226,10 +225,10 @@ export default function OracleScreen() {
       setMessages(prev => [...prev, assistantMsg]);
 
       // Auto-narrate if voice is enabled
-      if (voiceAvailable && voiceEnabled && accumulated) {
+      if (voiceEnabled && accumulated) {
         const voice = getVoiceForSoul(mountedSoul);
         setSpeakingId(assistantMsg.id);
-        speakText(accumulated, voice)
+        speakAny(accumulated, voice, mountedSoul)
           .then(player => { activeVoiceRef.current = player; })
           .catch(() => {})
           .finally(() => setSpeakingId(null));
@@ -318,7 +317,7 @@ export default function OracleScreen() {
           <Text style={[styles.messageRole, { color: isUser ? theme.accent : theme.textMuted }]}>
             {isUser ? 'YOU' : 'ORACLE'}
           </Text>
-          {!isUser && voiceAvailable && (
+          {!isUser && (
             <TouchableOpacity
               onPress={() => {
                 if (isSpeaking && activeVoiceRef.current) {
@@ -328,7 +327,7 @@ export default function OracleScreen() {
                 } else {
                   const voice = getVoiceForSoul(mountedSoul);
                   setSpeakingId(item.id);
-                  speakText(item.content, voice)
+                  speakAny(item.content, voice, mountedSoul)
                     .then(player => { activeVoiceRef.current = player; })
                     .catch(() => {})
                     .finally(() => setSpeakingId(null));

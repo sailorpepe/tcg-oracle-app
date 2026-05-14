@@ -15,7 +15,7 @@ export interface InferenceOptions {
   stopSequences?: string[];
 }
 
-export type EngineId = 'local' | 'anthropic' | 'groq' | 'ollama';
+export type EngineId = 'local' | 'anthropic' | 'groq' | 'ollama' | 'openai' | 'xai';
 
 export interface EngineConfig {
   id: EngineId;
@@ -30,21 +30,9 @@ export interface EngineConfig {
 
 export const AVAILABLE_ENGINES: EngineConfig[] = [
   {
-    id: 'local',
-    name: 'On-Device',
-    description: 'Pre-loaded AI model — zero data leaves your phone',
-    requiresKey: false,
-    setupSteps: [
-      'A small AI model downloads automatically on first use (~1.1 GB)',
-      'All processing happens on your device',
-      'No internet needed after download',
-      'Works best on iPhone 12+ or modern Android',
-    ],
-  },
-  {
     id: 'groq',
     name: 'Groq',
-    description: 'Free tier — blazing fast cloud AI',
+    description: 'Free tier — blazing fast cloud AI (recommended)',
     requiresKey: true,
     keyPlaceholder: 'gsk_...',
     keyUrl: 'https://console.groq.com/keys',
@@ -54,6 +42,36 @@ export const AVAILABLE_ENGINES: EngineConfig[] = [
       'Click "API Keys" in the left sidebar',
       'Click "Create API Key"',
       'Copy the key (starts with gsk_) and paste it below',
+    ],
+  },
+  {
+    id: 'xai',
+    name: 'xAI Grok',
+    description: 'Real-time knowledge + voice narration',
+    requiresKey: true,
+    keyPlaceholder: 'xai-...',
+    keyUrl: 'https://console.x.ai',
+    keyHint: 'Also powers the Oracle voice — one key for chat + TTS',
+    setupSteps: [
+      'Go to console.x.ai and sign in with your X account',
+      'Navigate to API Keys',
+      'Create a new key',
+      'Copy the key (starts with xai-) and paste it below',
+    ],
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    description: 'GPT-4o — versatile and reliable',
+    requiresKey: true,
+    keyPlaceholder: 'sk-...',
+    keyUrl: 'https://platform.openai.com/api-keys',
+    keyHint: 'Requires an OpenAI account with API credits',
+    setupSteps: [
+      'Go to platform.openai.com and sign in',
+      'Click "API Keys" in the left sidebar',
+      'Click "Create new secret key"',
+      'Copy the key (starts with sk-) and paste it below',
     ],
   },
   {
@@ -73,16 +91,16 @@ export const AVAILABLE_ENGINES: EngineConfig[] = [
   },
   {
     id: 'ollama',
-    name: 'Ollama',
-    description: 'Connect to your own AI server over WiFi',
+    name: 'Ollama (Local)',
+    description: 'Run AI on your own computer — fully offline',
     requiresKey: false,
-    keyPlaceholder: 'http://192.168.1.x:11434',
-    keyHint: 'Run any model on your Mac/PC, chat from your phone',
+    keyPlaceholder: 'http://localhost:11434',
+    keyHint: 'Free, private, no data leaves your machine',
     setupSteps: [
-      'Install Ollama on your computer (ollama.com)',
-      'Open Terminal and run: ollama pull llama3.2:3b',
-      'Make sure your phone is on the same WiFi network',
-      'Enter your computer\'s IP address below (find it in System Settings → Network)',
+      'Install Ollama from ollama.com (Mac, Windows, Linux)',
+      'Open Terminal and run: ollama pull hermes3:8b',
+      'Ollama runs on localhost — the app auto-detects it',
+      'Any installed model works (hermes, llama, gemma, qwen)',
     ],
   },
 ];

@@ -768,7 +768,7 @@ const HISTORY_API = 'https://tcg-api.the-undesirables.com/api/v1/history';
 
 /**
  * Fetch from the Mac Mini's direct SQLite API.
- * 190K products, 270K cards, 6.3M daily price rows — served in ~5ms.
+ * 427K+ products, 6.3M daily price rows — served in ~5ms.
  */
 async function fetchMacMiniHistory(
   cardName: string,
@@ -889,7 +889,7 @@ export async function fetchPriceHistory(
   game?: GameId,
   days: number = 365
 ): Promise<HistoricalPrice[]> {
-  // For TCG cards, try the Mac Mini direct API first (190K products, 6.3M daily price rows)
+  // For TCG cards, try the Mac Mini direct API first (427K+ products, 6.3M daily price rows)
   if (game && game !== 'ebay') {
     const macData = await fetchMacMiniHistory(cardName, game, days);
     if (macData.length > 0) {

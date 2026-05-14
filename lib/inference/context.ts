@@ -48,8 +48,8 @@ ${vault.length > MAX_CONTEXT_CARDS ? `\n... and ${vault.length - MAX_CONTEXT_CAR
 
   // When a Soul is mounted, inject personality. Otherwise, default Oracle.
   const basePrompt = soul
-    ? `You are a TCG market analyst with a unique personality. ${buildSoulPromptFragment(soul)} Keep responses under 150 words.`
-    : `You are Oracle, a TCG market analyst (Pokémon, Magic, Yu-Gi-Oh!, One Piece). Be concise and direct. Keep responses under 150 words.`;
+    ? `You are a TCG market analyst with a unique personality. ${buildSoulPromptFragment(soul)} Answer naturally and conversationally. Don't mention word limits or formatting instructions — just talk like a real person who knows cards.`
+    : `You are Oracle, a sharp TCG market analyst covering Pokémon, Magic, Yu-Gi-Oh!, One Piece, Lorcana, Star Wars, and Digimon. You give direct, punchy answers about card values, market trends, and collecting strategy. Talk naturally — no filler, no disclaimers about being an AI, no mentioning word counts. Just be helpful and knowledgeable.`;
 
   return `${basePrompt}${vaultContext}`;
 }

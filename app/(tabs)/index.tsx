@@ -25,6 +25,8 @@ import { executeEbayFetch, fetchEbaySoldItems } from '@/lib/ebay-worker';
 import { recordSnapshot } from '@/lib/oracle-memory';
 import SalesHistoryChart from '@/components/SalesHistoryChart';
 import TabScreenGuard from '@/components/TabScreenGuard';
+import SoulParticlesLite from '@/components/SoulParticlesLite';
+import { SoulProfile, getSoul } from '@/lib/soul';
 
 // PIN retrieval — checks session-only storage first, falls back to legacy persistent key
 const getSessionPin = (): string => {
@@ -66,6 +68,10 @@ export default function IndexScreen() {
   const [compsLoading, setCompsLoading] = useState(false);
   const [compsError, setCompsError] = useState('');
   const [historicalPrices, setHistoricalPrices] = useState<HistoricalPrice[]>([]);
+
+  // Soul — for ambient particles
+  const [mountedSoul, setMountedSoul] = useState<SoulProfile | null>(null);
+  useEffect(() => { getSoul().then(setMountedSoul); }, []);
 
   // Helper: get BYOK credentials if user has set them up (optional override)
   const getBYOKCredentials = async (): Promise<{appId: string, secret: string} | null> => {
@@ -860,6 +866,7 @@ export default function IndexScreen() {
     <TabScreenGuard>
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <WallpaperBackground />
+      <SoulParticlesLite soul={mountedSoul} intensity="subtle" />
       <StatusBar barStyle={theme.statusBar} />
 
       {/* Search bar outside FlatList to prevent focus loss on re-render */}

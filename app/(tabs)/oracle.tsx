@@ -31,6 +31,8 @@ import { speakAny, hasXAIKey, XAIVoice, XAI_VOICES } from '@/lib/xai-voice';
 import { saveSession, loadSession, archiveSession, clearSession } from '@/lib/chat-memory';
 import { getAllTracked } from '@/lib/oracle-memory';
 import { getPredictionStats, gradePredictions, logPrediction } from '@/lib/prediction-ledger';
+import { updateSoul as updateAmbientSoul } from '@/lib/ambient-engine';
+import SoulAvatar from '@/components/SoulAvatar';
 
 type ViewState = 'chat' | 'engines' | 'connect';
 
@@ -416,20 +418,35 @@ export default function OracleScreen() {
   const renderMessage = ({ item }: { item: DisplayMessage }) => {
     const isUser = item.role === 'user';
     const isSpeaking = speakingId === item.id;
+
+    if (isUser) {
+      return (
+        <View style={[
+          styles.messageBubble,
+          styles.userBubble,
+          { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow }
+        ]}>
+          <Text style={[styles.messageRole, { color: theme.accent }]}>YOU</Text>
+          <Text style={[styles.messageText, { color: theme.textPrimary }]}>{item.content}</Text>
+        </View>
+      );
+    }
+
+    // Oracle message — avatar + bubble
     return (
-      <View style={[
-        styles.messageBubble,
-        isUser ? styles.userBubble : styles.oracleBubble,
-        {
-          backgroundColor: isUser ? theme.accentMuted : theme.surface,
-          borderColor: isUser ? theme.borderGlow : theme.border,
-        }
-      ]}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={[styles.messageRole, { color: isUser ? theme.accent : theme.textMuted }]}>
-            {isUser ? 'YOU' : 'ORACLE'}
-          </Text>
-          {!isUser && (
+      <View style={styles.oracleRow}>
+        <View style={styles.avatarColumn}>
+          <SoulAvatar soul={mountedSoul} size={30} />
+        </View>
+        <View style={[
+          styles.messageBubble,
+          styles.oracleBubble,
+          { backgroundColor: theme.surface, borderColor: theme.border, flex: 1 }
+        ]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={[styles.messageRole, { color: theme.textMuted }]}>
+              {mountedSoul ? mountedSoul.name.toUpperCase() : 'ORACLE'}
+            </Text>
             <TouchableOpacity
               onPress={() => {
                 if (isSpeaking && activeVoiceRef.current) {
@@ -452,9 +469,9 @@ export default function OracleScreen() {
                 {isSpeaking ? '⏹' : '🔊'}
               </Text>
             </TouchableOpacity>
-          )}
+          </View>
+          <Text style={[styles.messageText, { color: theme.textPrimary }]}>{item.content}</Text>
         </View>
-        <Text style={[styles.messageText, { color: theme.textPrimary }]}>{item.content}</Text>
       </View>
     );
   };
@@ -462,13 +479,20 @@ export default function OracleScreen() {
   const renderFooter = () => {
     if (!isGenerating) return null;
     return (
-      <View style={[styles.messageBubble, styles.oracleBubble, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Text style={[styles.messageRole, { color: theme.textMuted }]}>ORACLE</Text>
-        <View style={styles.streamingRow}>
-          <Text style={[styles.messageText, { color: theme.textPrimary }]}>
-            {streamingContent || ''}
+      <View style={styles.oracleRow}>
+        <View style={styles.avatarColumn}>
+          <SoulAvatar soul={mountedSoul} size={30} />
+        </View>
+        <View style={[styles.messageBubble, styles.oracleBubble, { backgroundColor: theme.surface, borderColor: theme.border, flex: 1 }]}>
+          <Text style={[styles.messageRole, { color: theme.textMuted }]}>
+            {mountedSoul ? mountedSoul.name.toUpperCase() : 'ORACLE'}
           </Text>
-          <Animated.Text style={[styles.cursor, { color: theme.accent, opacity: cursorOpacity }]}>▌</Animated.Text>
+          <View style={styles.streamingRow}>
+            <Text style={[styles.messageText, { color: theme.textPrimary }]}>
+              {streamingContent || ''}
+            </Text>
+            <Animated.Text style={[styles.cursor, { color: theme.accent, opacity: cursorOpacity }]}>▌</Animated.Text>
+          </View>
         </View>
       </View>
     );
@@ -701,8 +725,8 @@ export default function OracleScreen() {
               {/* Soul Drop Zone — always visible in header */}
               <SoulDropZone
                 soul={mountedSoul}
-                onSoulMounted={(soul) => setMountedSoul(soul)}
-                onSoulUnmounted={() => setMountedSoul(null)}
+                onSoulMounted={(soul) => { setMountedSoul(soul); updateAmbientSoul(soul); }}
+                onSoulUnmounted={() => { setMountedSoul(null); updateAmbientSoul(null); }}
               />
 
               {/* Empty state — always in chat, never a wall */}
@@ -913,6 +937,17 @@ const styles = StyleSheet.create({
   },
   userBubble: { alignSelf: 'flex-end' },
   oracleBubble: { alignSelf: 'flex-start' },
+  oracleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginHorizontal: Spacing.sm,
+    marginVertical: Spacing.xs,
+    maxWidth: '92%',
+    gap: 8,
+  },
+  avatarColumn: {
+    paddingTop: 8,
+  },
   messageRole: {
     fontSize: 9,
     fontWeight: '800',

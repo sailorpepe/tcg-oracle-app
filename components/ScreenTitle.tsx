@@ -1,8 +1,10 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Platform, TouchableOpacity, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '@/lib/ThemeContext';
 import { useRouter } from 'expo-router';
+import { isAmbientPlaying, toggleAmbient } from '@/lib/ambient-engine';
+import { getSoul, SoulProfile } from '@/lib/soul';
 
 interface Props {
   emoji?: string;
@@ -21,6 +23,14 @@ export default function ScreenTitle({ emoji, title, subtitle, showGear = false }
   const router = useRouter();
 
   const pulseAnim = useRef(new Animated.Value(0)).current;
+  const [musicPlaying, setMusicPlaying] = useState(false);
+  const [mountedSoul, setMountedSoul] = useState<SoulProfile | null>(null);
+
+  useEffect(() => {
+    // Sync music state on mount
+    setMusicPlaying(isAmbientPlaying());
+    getSoul().then(setMountedSoul);
+  }, []);
 
   useEffect(() => {
     if (showGear && wallpaper.effectsEnabled !== false) {
@@ -29,7 +39,7 @@ export default function ScreenTitle({ emoji, title, subtitle, showGear = false }
           Animated.timing(pulseAnim, {
             toValue: 0.4,
             duration: 1500,
-            useNativeDriver: true, // Note: opacity and transform are supported
+            useNativeDriver: true,
           }),
           Animated.timing(pulseAnim, {
             toValue: 0,
@@ -55,19 +65,40 @@ export default function ScreenTitle({ emoji, title, subtitle, showGear = false }
 
       {/* Gear icon — top right */}
       {showGear && (
-        <TouchableOpacity
-          style={styles.gearButton}
-          onPress={() => router.navigate('/settings')}
-          activeOpacity={0.6}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Animated.View style={[
-            styles.gearGlow,
-            { opacity: pulseAnim }
-          ]} />
-          <Text style={[styles.gearIcon, { color: theme.textPrimary }]}>⚙</Text>
-          <Text style={[styles.gearLabel, { color: theme.textMuted }]}>Settings</Text>
-        </TouchableOpacity>
+        <View style={styles.topRightButtons}>
+          {/* Music toggle */}
+          <TouchableOpacity
+            style={styles.musicButton}
+            onPress={async () => {
+              const newState = await toggleAmbient(mountedSoul);
+              setMusicPlaying(newState);
+            }}
+            activeOpacity={0.6}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={[styles.musicIcon, { color: musicPlaying ? theme.accent : theme.textMuted }]}>
+              {musicPlaying ? '♪' : '♪'}
+            </Text>
+            <Text style={[styles.gearLabel, { color: musicPlaying ? theme.accent : theme.textMuted }]}>
+              {musicPlaying ? 'ON' : 'OFF'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Settings gear */}
+          <TouchableOpacity
+            style={styles.gearButtonInline}
+            onPress={() => router.navigate('/settings')}
+            activeOpacity={0.6}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Animated.View style={[
+              styles.gearGlow,
+              { opacity: pulseAnim }
+            ]} />
+            <Text style={[styles.gearIcon, { color: theme.textPrimary }]}>⚙</Text>
+            <Text style={[styles.gearLabel, { color: theme.textMuted }]}>Settings</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       {/* Title row — centered */}
@@ -114,6 +145,29 @@ const styles = StyleSheet.create({
     top: 14,
     right: 20,
     zIndex: 10,
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  topRightButtons: {
+    position: 'absolute',
+    top: 14,
+    right: 12,
+    zIndex: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  musicButton: {
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  musicIcon: {
+    fontSize: 20,
+    zIndex: 2,
+  },
+  gearButtonInline: {
     padding: 4,
     justifyContent: 'center',
     alignItems: 'center',

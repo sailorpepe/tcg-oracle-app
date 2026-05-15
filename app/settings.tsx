@@ -24,6 +24,8 @@ import ScreenTitle from '@/components/ScreenTitle';
 import WallpaperBackground from '@/components/WallpaperBackground';
 import { secureEbayCredentials, hasSecureCredentials } from '@/lib/crypto-utils';
 import { saveXAIKey, getXAIKey, removeXAIKey, hasXAIKey, XAI_VOICES, XAIVoice, DEFAULT_VOICE, speakText } from '@/lib/xai-voice';
+import { isAmbientPlaying, toggleAmbient, wasAmbientEnabled, updateSoul } from '@/lib/ambient-engine';
+import { getSoul, SoulProfile } from '@/lib/soul';
 
 import { useRouter } from 'expo-router';
 
@@ -45,6 +47,8 @@ export default function SettingsScreen() {
   const [selectedVoice, setSelectedVoice] = useState<XAIVoice>(DEFAULT_VOICE);
   const [isTesting, setIsTesting] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [ambientEnabled, setAmbientEnabled] = useState(false);
+  const [mountedSoul, setMountedSoul] = useState<SoulProfile | null>(null);
 
   useEffect(() => {
     hasSecureCredentials().then(setHasKeys);
@@ -55,6 +59,9 @@ export default function SettingsScreen() {
     AsyncStorage.getItem('@tcg_oracle_voice_enabled').then(v => {
       if (v !== null) setVoiceEnabled(v === 'true');
     });
+    // Ambient engine state
+    setAmbientEnabled(isAmbientPlaying());
+    getSoul().then(setMountedSoul);
   }, []);
 
   const handleSaveKeys = async () => {
@@ -252,6 +259,45 @@ export default function SettingsScreen() {
               thumbColor={wallpaper.effectsEnabled !== false ? theme.accent : theme.textMuted}
             />
           </View>
+        </View>
+
+        {/* ── Ambient Music ── */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>Ambient Music</Text>
+          <Text style={[styles.sectionHint, { color: theme.textDim }]}>
+            Generative ambient soundscape — procedurally created, never loops, never repeats. Zero file size, zero network.
+          </Text>
+
+          <View style={[styles.row, { borderBottomColor: theme.border }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowText, { color: theme.textPrimary }]}>Ambient Mode</Text>
+              <Text style={[{ color: theme.textMuted, fontSize: FontSizes.xs, marginTop: 4 }]}>
+                {ambientEnabled
+                  ? mountedSoul
+                    ? `♪ Playing — reactive to ${mountedSoul.name}`
+                    : '♪ Playing — default ambient'
+                  : 'Tap to start generative ambient music'}
+              </Text>
+            </View>
+            <Switch
+              value={ambientEnabled}
+              onValueChange={async (val) => {
+                const newState = await toggleAmbient(mountedSoul);
+                setAmbientEnabled(newState);
+              }}
+              trackColor={{ false: theme.surfaceElevated, true: theme.accentMuted }}
+              thumbColor={ambientEnabled ? theme.accent : theme.textMuted}
+            />
+          </View>
+
+          {mountedSoul && ambientEnabled && (
+            <View style={[styles.keyStatusCard, { backgroundColor: theme.accentDim, borderColor: theme.accent, marginTop: Spacing.md }]}>
+              <Text style={{ color: theme.accent, fontSize: FontSizes.sm, fontWeight: '700' }}>🧬 Soul-Reactive Mode</Text>
+              <Text style={{ color: theme.textMuted, fontSize: FontSizes.xs, marginTop: 4 }}>
+                Music is adapting to {mountedSoul.name}'s personality — {mountedSoul.neuroticism > 60 ? 'minor key, tense arpeggios' : mountedSoul.openness > 60 ? 'dorian mode, wide harmonics' : mountedSoul.extraversion > 60 ? 'bright timbre, faster pacing' : 'warm major chords, slow evolution'}.
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* ── eBay BYOK Settings (Optional Power User Feature) ── */}

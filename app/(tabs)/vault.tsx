@@ -28,6 +28,8 @@ import {
 import ScreenTitle from '@/components/ScreenTitle';
 import WallpaperBackground from '@/components/WallpaperBackground';
 import { useIsFocused } from '@react-navigation/native';
+import SoulParticlesLite from '@/components/SoulParticlesLite';
+import { SoulProfile, getSoul } from '@/lib/soul';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CHART_HEIGHT = 120;
@@ -39,6 +41,10 @@ export default function VaultScreen() {
   const [totalValue, setTotalValue] = useState(0);
   const [history, setHistory] = useState<VaultSnapshot[]>([]);
   const [sortBy, setSortBy] = useState<'added' | 'price' | 'name'>('added');
+
+  // Soul — for ambient particles
+  const [mountedSoul, setMountedSoul] = useState<SoulProfile | null>(null);
+  useEffect(() => { getSoul().then(setMountedSoul); }, []);
 
   const loadVault = useCallback(async () => {
     const stored = await getVault();
@@ -301,6 +307,7 @@ export default function VaultScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <WallpaperBackground />
+      <SoulParticlesLite soul={mountedSoul} intensity="subtle" />
       <StatusBar barStyle={theme.statusBar} />
       <FlatList
         data={sortedCards}

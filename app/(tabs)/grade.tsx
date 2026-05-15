@@ -22,6 +22,8 @@ import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { hasXAIKey, speakText, buildGradeNarration, XAIVoice, DEFAULT_VOICE } from '@/lib/xai-voice';
+import SoulParticlesLite from '@/components/SoulParticlesLite';
+import { SoulProfile, getSoul } from '@/lib/soul';
 
 // File extension allowlist for drag-and-drop (browsers may not set MIME for HEIC/HEIF)
 const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.bmp', '.gif', '.avif'];
@@ -64,6 +66,10 @@ export default function GradeScreen() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [selectedVoice, setSelectedVoice] = useState<XAIVoice>(DEFAULT_VOICE);
+
+  // Soul — for ambient particles
+  const [mountedSoul, setMountedSoul] = useState<SoulProfile | null>(null);
+  useEffect(() => { getSoul().then(setMountedSoul); }, []);
 
   useEffect(() => {
     hasXAIKey().then(setVoiceAvailable);
@@ -643,6 +649,7 @@ export default function GradeScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
         <WallpaperBackground />
+      <SoulParticlesLite soul={mountedSoul} intensity="subtle" />
         <StatusBar barStyle={theme.statusBar} />
         <View style={styles.permissionBox}>
           <ScreenTitle title="Scan" subtitle="Neural vision pipeline" />
@@ -681,6 +688,7 @@ export default function GradeScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
         <WallpaperBackground />
+      <SoulParticlesLite soul={mountedSoul} intensity="subtle" />
         <StatusBar barStyle={theme.statusBar} />
         <ScrollView style={styles.contentBox} contentContainerStyle={{ paddingBottom: 40 }}>
           <ScreenTitle title="Scan" subtitle="Neural vision pipeline" showGear />
@@ -837,6 +845,7 @@ export default function GradeScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <WallpaperBackground />
+      <SoulParticlesLite soul={mountedSoul} intensity="subtle" />
       <StatusBar barStyle="light-content" />
 
       {capturedUri ? (

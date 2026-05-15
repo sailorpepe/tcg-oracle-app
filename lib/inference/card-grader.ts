@@ -176,6 +176,10 @@ export async function analyzeCardImage(
     return analyzeWithAnthropic(key!, base64, mediaType, onToken);
   } else if (engineId === 'groq') {
     return analyzeWithGroq(key!, dataUri, onToken);
+  } else if (engineId === 'xai') {
+    return analyzeWithOpenAICompat(key!, dataUri, onToken, 'https://api.x.ai/v1', 'grok-2-vision-latest', 'xAI');
+  } else if (engineId === 'openai') {
+    return analyzeWithOpenAICompat(key!, dataUri, onToken, 'https://api.openai.com/v1', 'gpt-4o', 'OpenAI');
   } else if (engineId === 'ollama') {
     const ollamaKey = await getEngineKey('ollama');
     return analyzeWithOllama(ollamaKey || 'http://localhost:11434', base64, onToken);
@@ -300,6 +304,76 @@ async function analyzeWithGroq(
     const err = await resp.text().catch(() => '');
     if (resp.status === 401) throw new Error('Invalid Groq API key');
     throw new Error(`Groq error ${resp.status}: ${err.substring(0, 100)}`);
+  }
+
+  const reader = resp.body?.getReader();
+  if (!reader) throw new Error('No response stream');
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (data === '[DONE]') return;
+      try {
+        const parsed = JSON.parse(data);
+        const token = parsed.choices?.[0]?.delta?.content;
+        if (token) onToken(token);
+      } catch { /* skip */ }
+    }
+  }
+}
+
+// ─── OpenAI-Compatible Vision (xAI Grok + OpenAI GPT-4o) ───
+
+async function analyzeWithOpenAICompat(
+  key: string,
+  imageDataUri: string,
+  onToken: (token: string) => void,
+  baseUrl: string,
+  model: string,
+  providerName: string,
+): Promise<void> {
+  const resp = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: GRADING_PROMPT },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image_url',
+              image_url: { url: imageDataUri },
+            },
+            {
+              type: 'text',
+              text: 'Analyze this trading card and provide a detailed grading assessment.',
+            },
+          ],
+        },
+      ],
+      temperature: 0.3,
+      max_tokens: 1024,
+      stream: true,
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text().catch(() => '');
+    if (resp.status === 401) throw new Error(`Invalid ${providerName} API key`);
+    throw new Error(`${providerName} error ${resp.status}: ${err.substring(0, 100)}`);
   }
 
   const reader = resp.body?.getReader();

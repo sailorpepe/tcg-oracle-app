@@ -30,7 +30,7 @@ import SoulParticlesLite from '@/components/SoulParticlesLite';
 import { speakAny, hasXAIKey, XAIVoice, XAI_VOICES } from '@/lib/xai-voice';
 import { saveSession, loadSession, archiveSession, clearSession } from '@/lib/chat-memory';
 import { getAllTracked } from '@/lib/oracle-memory';
-import { getPredictionStats, gradePredictions } from '@/lib/prediction-ledger';
+import { getPredictionStats, gradePredictions, logPrediction } from '@/lib/prediction-ledger';
 
 type ViewState = 'chat' | 'engines' | 'connect';
 
@@ -212,6 +212,40 @@ export default function OracleScreen() {
     })();
   }, []);
 
+  // ─── Prediction Auto-Detection ────────────────
+  // Scans AI responses for price prediction patterns and auto-logs to ledger
+  const detectAndLogPredictions = (response: string, userQuery: string) => {
+    try {
+      // Extract card name from user query or response
+      const cardMatch = response.match(/(?:CARD:|for\s+)([A-Z][\w\s\-']+(?:#\d+)?)/i);
+      const cardName = cardMatch?.[1]?.trim() || userQuery.slice(0, 60);
+
+      // Pattern: "will rise/increase/go up" or "will drop/decrease/fall"
+      const bullish = /\b(?:will\s+(?:rise|increase|go\s+up|appreciate|climb)|bullish\s+on|upside\s+potential|expect(?:ing)?\s+(?:growth|gains))\b/i;
+      const bearish = /\b(?:will\s+(?:drop|decrease|fall|decline|go\s+down)|bearish\s+on|downside\s+risk|expect(?:ing)?\s+(?:a\s+)?(?:drop|decline|correction))\b/i;
+      const stable = /\b(?:hold\s+steady|remain\s+stable|stay\s+(?:flat|around)|sideways|plateau)\b/i;
+
+      // Pattern: explicit price target "$X"
+      const priceTarget = response.match(/(?:target|expect|predict|reach|worth)\s*(?:around|about|of)?\s*\$(\d+(?:,\d{3})*(?:\.\d{2})?)/i);
+
+      let direction: 'up' | 'down' | 'stable' | null = null;
+      if (bullish.test(response)) direction = 'up';
+      else if (bearish.test(response)) direction = 'down';
+      else if (stable.test(response)) direction = 'stable';
+
+      if (direction) {
+        const targetPrice = priceTarget ? parseFloat(priceTarget[1].replace(/,/g, '')) : undefined;
+        logPrediction({
+          query: cardName,
+          direction,
+          targetPrice,
+          confidence: response.toLowerCase().includes('high confidence') ? 'high' : 'medium',
+          timeframeDays: 30,
+        });
+      }
+    } catch { /* Silent — never break chat for prediction logging */ }
+  };
+
   // ─── Send Message ──────────────────────────
   const sendMessage = useCallback(async (text?: string) => {
     const raw = (text || inputText).trim();
@@ -284,6 +318,9 @@ export default function OracleScreen() {
           .catch(() => {})
           .finally(() => setSpeakingId(null));
       }
+
+      // Phase 5: Auto-detect predictions in AI responses
+      detectAndLogPredictions(accumulated, content);
 
     } catch (error: any) {
       const errorMsg: DisplayMessage = {
@@ -793,17 +830,31 @@ export default function OracleScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Status Bar — tap to change engine */}
+        {/* Status Bar — tap to change engine, clear chat */}
         <View style={[styles.statusBar, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
-          <TouchableOpacity onPress={() => setViewState('engines')}>
-            <Text style={[styles.statusText, { color: theme.textDim }]}>
-              {engineChecking
-                ? '◆ Detecting engine...'
-                : engineReady
-                  ? `◆ ${activeEngine?.name || 'Engine'} · ${activeEngineId === 'local' ? 'On-Device · 0 data sent' : activeEngineId === 'ollama' ? `${selectedOllamaModel || 'Local'} · 0 data sent` : 'Cloud'}${mountedSoul ? ` · ${mountedSoul.name}` : ''} · tap to change`
-                  : '◆ No engine · tap to configure'}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <TouchableOpacity onPress={() => setViewState('engines')} style={{ flex: 1 }}>
+              <Text style={[styles.statusText, { color: theme.textDim }]}>
+                {engineChecking
+                  ? '◆ Detecting engine...'
+                  : engineReady
+                    ? `◆ ${activeEngine?.name || 'Engine'} · ${activeEngineId === 'local' ? 'On-Device · 0 data sent' : activeEngineId === 'ollama' ? `${selectedOllamaModel || 'Local'} · 0 data sent` : 'Cloud'}${mountedSoul ? ` · ${mountedSoul.name}` : ''}`
+                    : '◆ No engine · tap to configure'}
+              </Text>
+            </TouchableOpacity>
+            {messages.length > 0 && (
+              <TouchableOpacity
+                onPress={async () => {
+                  await clearSession();
+                  setMessages([]);
+                }}
+                style={{ paddingHorizontal: Spacing.sm, paddingVertical: 4 }}
+                activeOpacity={0.6}
+              >
+                <Text style={{ fontSize: 12, color: theme.textDim }}>🗑</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </KeyboardAvoidingView>
 

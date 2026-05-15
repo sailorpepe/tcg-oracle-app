@@ -81,7 +81,28 @@ ${vault.length > MAX_CONTEXT_CARDS ? `\n... and ${vault.length - MAX_CONTEXT_CAR
     }
   }
 
+  // Token budget — cap system prompt to ~1500 chars for local model compatibility
+  const TOKEN_BUDGET = 1500;
+  const coreLength = basePrompt.length + dateContext.length;
+  let budget = TOKEN_BUDGET - coreLength;
+
+  // Priority: pred context > memory > vault (trim from lowest priority first)
+  if (predContext.length + memoryContext.length + vaultContext.length > budget) {
+    // Trim vault first — reduce card count
+    if (vaultContext.length > budget * 0.4) {
+      const trimCards = vault.slice(0, 5);
+      vaultContext = vault.length > 0
+        ? `\nVAULT: ${vault.length} cards, ~$${totalValue.toFixed(0)} total (${trimCards.map(c => sanitize(c.name)).join(', ')}...)`
+        : '';
+    }
+    // Trim memory if still over
+    if (predContext.length + memoryContext.length + vaultContext.length > budget) {
+      memoryContext = summaries.length > 0
+        ? `\nPAST TOPICS: ${summaries.slice(-3).join('; ').slice(0, 200)}`
+        : '';
+    }
+  }
+
   return `${basePrompt}${dateContext}${memoryContext}${predContext}${vaultContext}`;
 }
-
 

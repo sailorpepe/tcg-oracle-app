@@ -153,8 +153,7 @@ export async function speakText(
 ): Promise<{ stop: () => void } | null> {
   const blobUrl = await synthesizeSpeech({ text, voice });
   const player = playAudioBlob(blobUrl);
-  // Wait for audio to finish playing before returning
-  await player.done;
+  // Return immediately so the stop function is accessible during playback
   return player;
 }
 

@@ -84,6 +84,11 @@ export default function OracleScreen() {
   const [trackedCards, setTrackedCards] = useState<{ query: string; lastPrice: number; dataPoints: number }[]>([]);
   const [predictionAccuracy, setPredictionAccuracy] = useState<{ accuracy: number; total: number; graded: number } | null>(null);
   const [memoryLoaded, setMemoryLoaded] = useState(false);
+
+  // Ollama model selection
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [selectedOllamaModel, setSelectedOllamaModel] = useState<string | null>(null);
+  const [ollamaModelLoading, setOllamaModelLoading] = useState(false);
   const activeVoiceRef = useRef<{ stop: () => void } | null>(null);
 
   /**
@@ -113,6 +118,7 @@ export default function OracleScreen() {
     });
     hasXAIKey().then(() => {}); // Warm up key check
     AsyncStorage.getItem('@tcg_oracle_voice_enabled').then(v => setVoiceEnabled(v === 'true'));
+    AsyncStorage.getItem('@tcg_oracle_ollama_model').then(m => { if (m) setSelectedOllamaModel(m); });
 
     // Phase 1: Load previous chat session
     loadSession().then(saved => {
@@ -305,6 +311,30 @@ export default function OracleScreen() {
       await saveEngineKey(connectingEngine, connectKey.trim());
       await saveActiveEngine(connectingEngine);
       setActiveEngineId(connectingEngine);
+
+      // If Ollama, fetch available models and let user pick
+      if (connectingEngine === 'ollama') {
+        setOllamaModelLoading(true);
+        try {
+          const tagsResp = await fetch(`${connectKey.trim()}/api/tags`, { signal: AbortSignal.timeout(3000) });
+          if (tagsResp.ok) {
+            const tagsData = await tagsResp.json();
+            const models: string[] = (tagsData.models || []).map((m: any) => m.name);
+            if (models.length > 0) {
+              setOllamaModels(models);
+              // Load previously saved model preference
+              const savedModel = await AsyncStorage.getItem('@tcg_oracle_ollama_model');
+              setSelectedOllamaModel(savedModel && models.includes(savedModel) ? savedModel : models[0]);
+              setOllamaModelLoading(false);
+              setEngineReady(true);
+              setConnectVerifying(false);
+              return; // Stay on connect view to show model picker
+            }
+          }
+        } catch {} 
+        setOllamaModelLoading(false);
+      }
+
       setEngineReady(true);
       setViewState('chat');
       setConnectKey('');
@@ -549,6 +579,56 @@ export default function OracleScreen() {
                   : 'Key stored in device secure storage. Never transmitted to our servers.'}
               </Text>
             </View>
+
+            {/* Ollama model picker — shown after successful connection */}
+            {isOllama && ollamaModels.length > 0 && (
+              <View style={[styles.stepsContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Text style={[styles.stepsTitle, { color: theme.textMuted }]}>INSTALLED MODELS</Text>
+                <Text style={[styles.keyHint, { color: theme.textDim, marginBottom: Spacing.sm }]}>
+                  Tap to select which model the Oracle uses
+                </Text>
+                {ollamaModels.map((model) => {
+                  const isSelected = model === selectedOllamaModel;
+                  return (
+                    <TouchableOpacity
+                      key={model}
+                      style={[
+                        styles.modelCard,
+                        {
+                          backgroundColor: isSelected ? theme.accentMuted : 'transparent',
+                          borderColor: isSelected ? theme.accent : theme.border,
+                        },
+                      ]}
+                      onPress={async () => {
+                        setSelectedOllamaModel(model);
+                        await AsyncStorage.setItem('@tcg_oracle_ollama_model', model);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.modelName, { color: isSelected ? theme.accent : theme.textPrimary }]}>
+                        {isSelected ? '◆ ' : '○ '}{model}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity
+                  style={[styles.verifyBtn, { backgroundColor: theme.accentMuted, borderColor: theme.borderGlow, marginTop: Spacing.md }]}
+                  onPress={() => setViewState('chat')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.verifyBtnText, { color: theme.accent }]}>START CHATTING →</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {isOllama && ollamaModelLoading && (
+              <View style={{ alignItems: 'center', padding: Spacing.lg }}>
+                <ActivityIndicator size="small" color={theme.accent} />
+                <Text style={[styles.keyHint, { color: theme.textMuted, marginTop: Spacing.sm }]}>
+                  Detecting installed models...
+                </Text>
+              </View>
+            )}
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -720,7 +800,7 @@ export default function OracleScreen() {
               {engineChecking
                 ? '◆ Detecting engine...'
                 : engineReady
-                  ? `◆ ${activeEngine?.name || 'Engine'} · ${activeEngineId === 'local' ? 'On-Device · 0 data sent' : activeEngineId === 'ollama' ? 'Local Server · 0 data sent' : 'Cloud'}${mountedSoul ? ` · ${mountedSoul.name}` : ''} · tap to change`
+                  ? `◆ ${activeEngine?.name || 'Engine'} · ${activeEngineId === 'local' ? 'On-Device · 0 data sent' : activeEngineId === 'ollama' ? `${selectedOllamaModel || 'Local'} · 0 data sent` : 'Cloud'}${mountedSoul ? ` · ${mountedSoul.name}` : ''} · tap to change`
                   : '◆ No engine · tap to configure'}
             </Text>
           </TouchableOpacity>
@@ -1075,5 +1155,18 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.xs,
     fontWeight: '700',
     textAlign: 'center',
+  },
+
+  // Ollama model picker
+  modelCard: {
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    marginBottom: Spacing.xs,
+  },
+  modelName: {
+    fontSize: FontSizes.sm,
+    fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
 });

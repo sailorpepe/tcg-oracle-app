@@ -210,23 +210,30 @@ async function ollamaStream(
   const endpoint = await getEngineKey('ollama');
   if (!endpoint) throw new Error('Ollama endpoint not configured');
 
-  // Auto-detect the best installed model (instead of hardcoding)
+  // Check if user has a saved model preference (from model picker UI)
   let model = 'hermes3:8b'; // default recommendation
   try {
-    const tagsResp = await fetch(`${endpoint}/api/tags`, { signal: AbortSignal.timeout(3000) });
-    if (tagsResp.ok) {
-      const tagsData = await tagsResp.json();
-      const models: string[] = (tagsData.models || []).map((m: any) => m.name);
-      // Priority: hermes3 > hermes > llama > gemma > qwen > first available
-      const preferred = [
-        models.find(m => m.startsWith('hermes3')),
-        models.find(m => m.startsWith('hermes')),
-        models.find(m => m.includes('llama')),
-        models.find(m => m.includes('gemma')),
-        models.find(m => m.includes('qwen')),
-        models[0],
-      ];
-      model = preferred.find(Boolean) || model;
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    const savedModel = await AsyncStorage.getItem('@tcg_oracle_ollama_model');
+    if (savedModel) {
+      model = savedModel;
+    } else {
+      // Auto-detect the best installed model
+      const tagsResp = await fetch(`${endpoint}/api/tags`, { signal: AbortSignal.timeout(3000) });
+      if (tagsResp.ok) {
+        const tagsData = await tagsResp.json();
+        const models: string[] = (tagsData.models || []).map((m: any) => m.name);
+        // Priority: hermes3 > hermes > llama > gemma > qwen > first available
+        const preferred = [
+          models.find(m => m.startsWith('hermes3')),
+          models.find(m => m.startsWith('hermes')),
+          models.find(m => m.includes('llama')),
+          models.find(m => m.includes('gemma')),
+          models.find(m => m.includes('qwen')),
+          models[0],
+        ];
+        model = preferred.find(Boolean) || model;
+      }
     }
   } catch { /* use default */ }
 

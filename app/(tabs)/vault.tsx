@@ -160,7 +160,7 @@ export default function VaultScreen() {
   };
 
   const openCardUrl = (card: Card) => {
-    const url = getCardPurchaseUrl(card);
+    const { url } = getCardPurchaseUrl(card);
     if (url) Linking.openURL(url);
   };
 

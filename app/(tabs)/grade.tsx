@@ -46,7 +46,7 @@ export default function GradeScreen() {
   const [cameraReady, setCameraReady] = useState(false);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const cameraRef = useRef<CameraView>(null);
+  const cameraRef = useRef<any>(null);
 
   // Grading analysis state
   const [analysisText, setAnalysisText] = useState('');
@@ -119,7 +119,7 @@ export default function GradeScreen() {
                   console.warn('Tauri file read failed:', e);
                 }
               }
-            } else if (event.payload.type === 'cancel') {
+            } else if ((event.payload as any).type === 'cancel') {
               setIsDragging(false);
             }
           });
@@ -881,7 +881,7 @@ export default function GradeScreen() {
           <CameraView
             ref={cameraRef}
             style={styles.camera}
-            facing="back"
+            {...{ facing: 'back' } as any}
             onCameraReady={() => setCameraReady(true)}
           />
 

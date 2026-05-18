@@ -3,6 +3,7 @@
  * Builds the system prompt with the user's Vault data injected.
  * Optionally injects Soul personality when an Undesirables SOUL.md is mounted.
  * Injects chat memory summaries and prediction stats for continuity.
+ * Injects temporal awareness (clock, session, market timing) — all ephemeral.
  * All data is sanitized before injection.
  */
 
@@ -13,6 +14,71 @@ import { getSessionSummaries } from '@/lib/chat-memory';
 import { getPredictionStats } from '@/lib/prediction-ledger';
 
 const MAX_CONTEXT_CARDS = 20;
+
+/** Optional session metadata — passed from oracle.tsx, lives in memory only */
+export interface SessionMeta {
+  startedAt: number;      // Date.now() when chat tab opened
+  messageCount: number;   // total messages this session
+}
+
+// ── Temporal Awareness (Layers 1-3) ─────────────────────────
+// All ephemeral — derived from Date.now(), nothing stored to disk.
+
+/** Layer 1: Full clock injection — date, time, timezone */
+function getClockContext(): string {
+  const now = new Date();
+  const date = now.toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });
+  const time = now.toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  });
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return `Current date: ${date}. Current time: ${time} (${tz}).`;
+}
+
+/** Layer 2: Session duration — how long the user has been chatting */
+function getSessionContext(meta?: SessionMeta): string {
+  if (!meta) return '';
+  const elapsed = Math.round((Date.now() - meta.startedAt) / 60000);
+  if (elapsed < 2) return ''; // Don't mention if just started
+  return ` Session: ${elapsed} min, ${meta.messageCount} messages.`;
+}
+
+/** Layer 3: Market timing — TCGCSV freshness, eBay activity, day patterns */
+function getMarketTimingContext(): string {
+  const now = new Date();
+  const hour = now.getHours();
+  const utcHour = now.getUTCHours();
+  const day = now.getDay(); // 0=Sun, 6=Sat
+  const parts: string[] = [];
+
+  // TCGCSV refreshes daily at ~20:00 UTC (3 PM CDT)
+  if (utcHour >= 20) {
+    parts.push('TCG prices refreshed today (current).');
+  } else if (utcHour >= 18) {
+    const mins = (20 - utcHour) * 60 - now.getUTCMinutes();
+    parts.push(`TCG prices refresh in ~${mins}min.`);
+  } else {
+    parts.push('TCG prices are from yesterday.');
+  }
+
+  // eBay activity windows
+  if (hour >= 23 || hour < 7) {
+    parts.push('eBay activity: LOW (overnight).');
+  } else if (hour >= 10 && hour <= 14) {
+    parts.push('eBay activity: HIGH (peak selling).');
+  } else if (hour >= 18 && hour <= 22) {
+    parts.push('eBay activity: MODERATE (evening browsing).');
+  }
+
+  // Day-of-week
+  if (day === 0 || day === 6) parts.push('Weekend: more casual buyers.');
+  else if (day === 1) parts.push('Monday: post-weekend corrections common.');
+  else if (day === 5) parts.push('Friday: pre-weekend listing surge.');
+
+  return parts.length > 0 ? ` MARKET: ${parts.join(' ')}` : '';
+}
 
 /** Sanitize card data to prevent prompt injection */
 function sanitize(text: string): string {
@@ -34,7 +100,10 @@ function formatCard(card: Card): string {
   return parts.filter(Boolean).join(' ');
 }
 
-export async function buildSystemPrompt(soul?: SoulProfile | null): Promise<string> {
+export async function buildSystemPrompt(
+  soul?: SoulProfile | null,
+  sessionMeta?: SessionMeta,
+): Promise<string> {
   // Gather all context data in parallel
   const [vault, summaries, predStats] = await Promise.all([
     getVault(),
@@ -55,15 +124,13 @@ ${vault.length > MAX_CONTEXT_CARDS ? `\n... and ${vault.length - MAX_CONTEXT_CAR
     vaultContext = '\nVAULT: Empty — no cards saved yet.';
   }
 
-  // Inject current date so local models know the real date
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-
   // When a Soul is mounted, inject personality. Otherwise, default Oracle.
   const basePrompt = soul
     ? `You are a TCG market analyst with a unique personality. ${buildSoulPromptFragment(soul)} Answer naturally and conversationally. Don't mention word limits or formatting instructions — just talk like a real person who knows cards.`
     : `You are Oracle, a sharp TCG market analyst covering Pokémon, Magic, Yu-Gi-Oh!, One Piece, Lorcana, Star Wars, and Digimon. You give direct, punchy answers about card values, market trends, and collecting strategy. Talk naturally — no filler, no disclaimers about being an AI, no mentioning word counts. Just be helpful and knowledgeable.`;
 
-  const dateContext = `\nToday's date is ${today}. Never tell the user your knowledge has a cutoff date or that your training data is from a specific year. If you don't know something recent, just say you're not sure — don't blame a training cutoff.`;
+  // Temporal awareness — all ephemeral, nothing stored
+  const temporal = `\n${getClockContext()}${getSessionContext(sessionMeta)}${getMarketTimingContext()} Never mention knowledge cutoff dates — if unsure, just say so.`;
 
   // Chat memory — past session summaries for continuity
   let memoryContext = '';
@@ -83,7 +150,7 @@ ${vault.length > MAX_CONTEXT_CARDS ? `\n... and ${vault.length - MAX_CONTEXT_CAR
 
   // Token budget — cap system prompt to ~1500 chars for local model compatibility
   const TOKEN_BUDGET = 1500;
-  const coreLength = basePrompt.length + dateContext.length;
+  const coreLength = basePrompt.length + temporal.length;
   let budget = TOKEN_BUDGET - coreLength;
 
   // Priority: pred context > memory > vault (trim from lowest priority first)
@@ -103,6 +170,6 @@ ${vault.length > MAX_CONTEXT_CARDS ? `\n... and ${vault.length - MAX_CONTEXT_CAR
     }
   }
 
-  return `${basePrompt}${dateContext}${memoryContext}${predContext}${vaultContext}`;
+  return `${basePrompt}${temporal}${memoryContext}${predContext}${vaultContext}`;
 }
 

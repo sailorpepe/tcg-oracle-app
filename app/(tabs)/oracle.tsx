@@ -232,8 +232,23 @@ export default function OracleScreen() {
       const bearish = /\b(?:will\s+(?:drop|decrease|fall|decline|go\s+down)|bearish\s+on|downside\s+risk|expect(?:ing)?\s+(?:a\s+)?(?:drop|decline|correction))\b/i;
       const stable = /\b(?:hold\s+steady|remain\s+stable|stay\s+(?:flat|around)|sideways|plateau)\b/i;
 
-      // Pattern: explicit price target "$X"
-      const priceTarget = response.match(/(?:target|expect|predict|reach|worth)\s*(?:around|about|of)?\s*\$(\d+(?:,\d{3})*(?:\.\d{2})?)/i);
+      // Pattern: explicit price target "$X" (future predicted price)
+      const priceTarget = response.match(/(?:target|expect|predict|reach|worth|hit)\s*(?:around|about|of)?\s*\$(\d+(?:,\d{3})*(?:\.\d{2})?)/i);
+
+      // Pattern: current price "$X" (what the card is trading at NOW)
+      const currentPrice = response.match(/(?:currently|trading\s+at|priced\s+at|valued\s+at|worth\s+about|around|sits\s+at|going\s+for)\s*\$(\d+(?:,\d{3})*(?:\.\d{2})?)/i);
+
+      // Pattern: timeframe extraction (e.g., "in 6 months", "within 30 days", "over the next year")
+      const timeMatch = response.match(/(?:in|within|over\s+the\s+next|next)\s+(\d+)\s*(day|week|month|year)s?\b/i);
+      let timeframeDays = 30; // default
+      if (timeMatch) {
+        const num = parseInt(timeMatch[1], 10);
+        const unit = timeMatch[2].toLowerCase();
+        if (unit === 'day') timeframeDays = num;
+        else if (unit === 'week') timeframeDays = num * 7;
+        else if (unit === 'month') timeframeDays = num * 30;
+        else if (unit === 'year') timeframeDays = num * 365;
+      }
 
       let direction: 'up' | 'down' | 'stable' | null = null;
       if (bullish.test(response)) direction = 'up';
@@ -241,13 +256,14 @@ export default function OracleScreen() {
       else if (stable.test(response)) direction = 'stable';
 
       if (direction) {
-        const targetPrice = priceTarget ? parseFloat(priceTarget[1].replace(/,/g, '')) : undefined;
+        const target = priceTarget ? parseFloat(priceTarget[1].replace(/,/g, '')) : undefined;
+        const current = currentPrice ? parseFloat(currentPrice[1].replace(/,/g, '')) : 0;
         logPrediction({
           cardName,
           direction,
-          priceAtPrediction: targetPrice || 0,
-          targetPrice,
-          timeframeDays: 30,
+          priceAtPrediction: current,
+          targetPrice: target,
+          timeframeDays,
           reasoning: `Auto-detected from Oracle response. User asked: "${userQuery.slice(0, 80)}"`,
         });
       }

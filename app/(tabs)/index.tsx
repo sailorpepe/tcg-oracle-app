@@ -175,6 +175,28 @@ export default function IndexScreen() {
         // Fallback: show Pokémon trending instead of empty state
         const fallback = await searchCards('Charizard', 'pokemon');
         setTrendingCards(fallback.cards.filter(c => c.imageUrl && c.price != null).slice(0, 8));
+      } else if (filter === 'all') {
+        // Diverse mix: pull 1-2 signature cards from each game in parallel
+        const gameQueries: { term: string; game: GameId }[] = [
+          { term: 'Charizard', game: 'pokemon' },
+          { term: 'Lotus', game: 'magic' },
+          { term: 'Dark Magician', game: 'yugioh' },
+          { term: 'Luffy', game: 'onepiece' },
+          { term: 'Elsa', game: 'lorcana' },
+          { term: 'Darth Vader', game: 'starwars' },
+        ];
+        const results = await Promise.allSettled(
+          gameQueries.map(q => searchCards(q.term, q.game))
+        );
+        const mixed: Card[] = [];
+        for (const r of results) {
+          if (r.status === 'fulfilled') {
+            const validCards = r.value.cards.filter(c => c.imageUrl && c.price != null);
+            // Take top 1-2 results per game for diversity
+            mixed.push(...validCards.slice(0, mixed.length < 4 ? 2 : 1));
+          }
+        }
+        setTrendingCards(mixed.slice(0, 8));
       } else {
         const result = await searchCards(sig.term, sig.game);
         // Filter: must have image AND price (cards with broken/dark images usually lack prices too)

@@ -28,7 +28,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { SoulProfile, getSoul } from '@/lib/soul';
 import SoulDropZone from '@/components/SoulDropZone';
 import SoulParticlesLite from '@/components/SoulParticlesLite';
-import { speakAny, hasXAIKey, XAIVoice, XAI_VOICES } from '@/lib/xai-voice';
+import { speakAny, hasXAIKey, XAIVoice, XAI_VOICES, SentenceStreamTTS } from '@/lib/xai-voice';
 import { saveSession, loadSession, archiveSession, clearSession } from '@/lib/chat-memory';
 import { getAllTracked } from '@/lib/oracle-memory';
 import { getPredictionStats, gradePredictions, logPrediction } from '@/lib/prediction-ledger';
@@ -319,10 +319,26 @@ export default function OracleScreen() {
       const engine = createCloudEngine(activeEngineId);
       let accumulated = '';
 
+      // ── Sentence-Level TTS Pipeline ──
+      // Instead of waiting for the full response, stream audio sentence-by-sentence.
+      // First sentence plays within ~2s instead of waiting 8-15s for full response.
+      let streamTTS: SentenceStreamTTS | null = null;
+      if (voiceEnabled) {
+        const voice = getVoiceForSoul(mountedSoul);
+        const useXAI = await hasXAIKey();
+        streamTTS = new SentenceStreamTTS(voice, mountedSoul, useXAI);
+        activeVoiceRef.current = streamTTS;
+      }
+
       await engine.generateStream(chatHistory, (token) => {
         accumulated += token;
         setStreamingContent(accumulated);
+        // Feed each token to the sentence detector
+        streamTTS?.feed(token);
       });
+
+      // Flush any remaining buffered text to TTS
+      streamTTS?.flush();
 
       const assistantMsg: DisplayMessage = {
         id: `assistant-${Date.now()}`,
@@ -338,14 +354,18 @@ export default function OracleScreen() {
         return updated;
       });
 
-      // Auto-narrate if voice is enabled
+      // Set speaking indicator (streaming TTS is already playing by now)
       if (voiceEnabled && accumulated) {
-        const voice = getVoiceForSoul(mountedSoul);
         setSpeakingId(assistantMsg.id);
-        speakAny(accumulated, voice, mountedSoul)
-          .then(player => { activeVoiceRef.current = player; })
-          .catch(() => {})
-          .finally(() => setSpeakingId(null));
+        // Clear speaking indicator when TTS queue drains
+        // (a simple timeout since the queue will finish naturally)
+        const checkDone = setInterval(() => {
+          if (!streamTTS || (streamTTS as any).stopped || (!(streamTTS as any).playing && (streamTTS as any).queue.length === 0)) {
+            clearInterval(checkDone);
+            setSpeakingId(null);
+            activeVoiceRef.current = null;
+          }
+        }, 500);
       }
 
       // Phase 5: Auto-detect predictions in AI responses

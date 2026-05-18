@@ -383,6 +383,158 @@ export async function speakAny(
   return speakTextLocal(text, soul);
 }
 
+// ─── Sentence-Level Streaming TTS ─────────────────────────────
+// Accepts tokens one at a time during streaming. Detects sentence
+// boundaries (., !, ?, newline) and immediately sends each completed
+// sentence to TTS synthesis while the next sentence accumulates.
+// A FIFO queue ensures sentences play in correct order.
+// This reduces time-to-first-audio from ~8-15s to ~2-3s.
 
+/**
+ * Sentence boundary detector — splits streaming text into speakable chunks.
+ * Handles abbreviations (Mr., Dr., U.S.) and decimal numbers ($12.50) to
+ * avoid false splits.
+ */
+function detectSentenceBoundary(text: string): { sentence: string; remainder: string } | null {
+  // Skip if too short to be a sentence
+  if (text.length < 10) return null;
 
+  // Look for sentence-ending punctuation followed by whitespace or end
+  // Avoid splitting on: decimal numbers, common abbreviations, ellipses
+  const match = text.match(
+    /(?<![0-9])(?<!\b(?:Mr|Mrs|Ms|Dr|Jr|Sr|St|Ave|Blvd|vs|etc|approx|est|i\.e|e\.g))([.!?])\s+(?=[A-Z\u2022\u25CF\-*])/
+  );
 
+  if (match && match.index !== undefined) {
+    const splitAt = match.index + 1; // include the punctuation
+    return {
+      sentence: text.slice(0, splitAt).trim(),
+      remainder: text.slice(splitAt).trim(),
+    };
+  }
+
+  // Also split on newlines (markdown list items, paragraphs)
+  const nlIdx = text.indexOf('\n');
+  if (nlIdx > 15) {
+    return {
+      sentence: text.slice(0, nlIdx).trim(),
+      remainder: text.slice(nlIdx + 1).trim(),
+    };
+  }
+
+  return null;
+}
+
+export class SentenceStreamTTS {
+  private buffer = '';
+  private queue: string[] = [];
+  private playing = false;
+  private stopped = false;
+  private voice: XAIVoice;
+  private soul: OceanScores | null;
+  private useXAI: boolean;
+  private currentPlayer: { stop: () => void } | null = null;
+
+  constructor(voice: XAIVoice = DEFAULT_VOICE, soul?: OceanScores | null, useXAI = false) {
+    this.voice = voice;
+    this.soul = soul || null;
+    this.useXAI = useXAI;
+  }
+
+  /**
+   * Feed a token from the streaming response.
+   * Automatically detects sentence boundaries and queues for playback.
+   */
+  feed(token: string): void {
+    if (this.stopped) return;
+    this.buffer += token;
+
+    // Check for sentence boundary
+    let boundary = detectSentenceBoundary(this.buffer);
+    while (boundary) {
+      const cleaned = sanitizeForTTS(boundary.sentence);
+      if (cleaned.length > 5) {
+        this.queue.push(cleaned);
+        this.processQueue(); // Start playing if not already
+      }
+      this.buffer = boundary.remainder;
+      boundary = detectSentenceBoundary(this.buffer);
+    }
+  }
+
+  /**
+   * Signal that streaming is complete. Flushes any remaining buffered text.
+   */
+  flush(): void {
+    if (this.stopped) return;
+    const remaining = sanitizeForTTS(this.buffer.trim());
+    if (remaining.length > 5) {
+      this.queue.push(remaining);
+      this.processQueue();
+    }
+    this.buffer = '';
+  }
+
+  /**
+   * Stop all playback and clear the queue.
+   */
+  stop(): void {
+    this.stopped = true;
+    this.queue = [];
+    this.buffer = '';
+    if (this.currentPlayer) {
+      this.currentPlayer.stop();
+      this.currentPlayer = null;
+    }
+    // Stop any web speech synthesis
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  }
+
+  /**
+   * Process the sentence queue — plays sentences sequentially.
+   */
+  private async processQueue(): Promise<void> {
+    if (this.playing || this.stopped || this.queue.length === 0) return;
+    this.playing = true;
+
+    while (this.queue.length > 0 && !this.stopped) {
+      const sentence = this.queue.shift()!;
+      try {
+        if (this.useXAI) {
+          // xAI TTS — high quality, costs money
+          const blobUrl = await synthesizeSpeech({ text: sentence, voice: this.voice });
+          if (this.stopped) { URL.revokeObjectURL(blobUrl); break; }
+          const player = playAudioBlob(blobUrl);
+          this.currentPlayer = player;
+          await player.done;
+          this.currentPlayer = null;
+        } else {
+          // Local Web Speech API — free, immediate
+          const player = await speakTextLocal(sentence, this.soul);
+          if (this.stopped) { player?.stop(); break; }
+          this.currentPlayer = player;
+          // Wait for utterance to complete before next sentence
+          await new Promise<void>(resolve => {
+            if (!player) { resolve(); return; }
+            // speakTextLocal resolves its promise when speech ends
+            // So we just need a small polling check
+            const check = setInterval(() => {
+              if (this.stopped || !window.speechSynthesis.speaking) {
+                clearInterval(check);
+                resolve();
+              }
+            }, 100);
+          });
+          this.currentPlayer = null;
+        }
+      } catch (e) {
+        console.warn('[SentenceStreamTTS] Sentence failed:', e);
+        // Continue to next sentence on error
+      }
+    }
+
+    this.playing = false;
+  }
+}

@@ -1,4 +1,4 @@
-FROM rust:1.86-bookworm
+FROM rust:1.88-bookworm
 
 # System deps for Tauri Linux build
 RUN apt-get update && apt-get install -y \

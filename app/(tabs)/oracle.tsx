@@ -14,13 +14,14 @@ import {
   ActivityIndicator,
   ScrollView,
   Linking,
+  Alert,
 } from 'react-native';
 import { useTheme } from '@/lib/ThemeContext';
 import { Spacing, FontSizes, BorderRadius } from '@/constants/Theme';
 import ScreenTitle from '@/components/ScreenTitle';
 import { ChatMessage, AVAILABLE_ENGINES, EngineId } from '@/lib/inference/engine';
 import { createCloudEngine, saveEngineKey, getEngineKey, saveActiveEngine, getActiveEngine, verifyKey } from '@/lib/inference/cloud-engine';
-import { buildSystemPrompt } from '@/lib/inference/context';
+import { buildSystemPrompt, SessionMeta } from '@/lib/inference/context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import WallpaperBackground from '@/components/WallpaperBackground';
 import { useIsFocused } from '@react-navigation/native';
@@ -74,6 +75,10 @@ export default function OracleScreen() {
   const [lastSentAt, setLastSentAt] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const cursorOpacity = useRef(new Animated.Value(1)).current;
+
+  // Session tracking — ephemeral, lives in memory only
+  const sessionStartRef = useRef(Date.now());
+  const messageCountRef = useRef(0);
 
   // Soul state
   const [mountedSoul, setMountedSoul] = useState<SoulProfile | null>(null);
@@ -238,11 +243,12 @@ export default function OracleScreen() {
       if (direction) {
         const targetPrice = priceTarget ? parseFloat(priceTarget[1].replace(/,/g, '')) : undefined;
         logPrediction({
-          query: cardName,
+          cardName,
           direction,
+          priceAtPrediction: targetPrice || 0,
           targetPrice,
-          confidence: response.toLowerCase().includes('high confidence') ? 'high' : 'medium',
           timeframeDays: 30,
+          reasoning: `Auto-detected from Oracle response. User asked: "${userQuery.slice(0, 80)}"`,
         });
       }
     } catch { /* Silent — never break chat for prediction logging */ }
@@ -279,7 +285,12 @@ export default function OracleScreen() {
     setStreamingContent('');
 
     try {
-      const systemPrompt = await buildSystemPrompt(mountedSoul);
+      messageCountRef.current += 1;
+      const sessionMeta: SessionMeta = {
+        startedAt: sessionStartRef.current,
+        messageCount: messageCountRef.current,
+      };
+      const systemPrompt = await buildSystemPrompt(mountedSoul, sessionMeta);
       const chatHistory: ChatMessage[] = [
         { role: 'system', content: systemPrompt },
         ...messages
@@ -868,14 +879,48 @@ export default function OracleScreen() {
             </TouchableOpacity>
             {messages.length > 0 && (
               <TouchableOpacity
-                onPress={async () => {
-                  await clearSession();
-                  setMessages([]);
+                onPress={() => {
+                  // Web doesn't support Alert.alert — use window.confirm fallback
+                  if (Platform.OS === 'web') {
+                    if (window.confirm(`Clear chat? (${messages.length} messages will be archived)`)) {
+                      archiveSession(messages).then(() => clearSession()).then(() => {
+                        setMessages([]);
+                        sessionStartRef.current = Date.now();
+                        messageCountRef.current = 0;
+                      });
+                    }
+                  } else {
+                    Alert.alert(
+                      'Clear Chat',
+                      `Archive and clear ${messages.length} messages?`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Clear', style: 'destructive', onPress: async () => {
+                            await archiveSession(messages);
+                            await clearSession();
+                            setMessages([]);
+                            sessionStartRef.current = Date.now();
+                            messageCountRef.current = 0;
+                          }
+                        },
+                      ]
+                    );
+                  }
                 }}
-                style={{ paddingHorizontal: Spacing.sm, paddingVertical: 4 }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: Spacing.sm,
+                  paddingVertical: 4,
+                  gap: 4,
+                  borderRadius: 6,
+                  backgroundColor: 'rgba(255,255,255,0.04)',
+                }}
                 activeOpacity={0.6}
               >
                 <Text style={{ fontSize: 12, color: theme.textDim }}>🗑</Text>
+                <Text style={{ fontSize: 9, color: theme.textDim, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' as const }}>Clear</Text>
               </TouchableOpacity>
             )}
           </View>

@@ -92,7 +92,7 @@ export default function TabLayout() {
         // unmountOnBlur guarantees only the active tab is rendered.
         unmountOnBlur: true,
         lazy: true,
-      }}
+      } as any}
     >
       <Tabs.Screen
         name="index"

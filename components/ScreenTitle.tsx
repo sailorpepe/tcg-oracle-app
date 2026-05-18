@@ -5,6 +5,7 @@ import { useTheme } from '@/lib/ThemeContext';
 import { useRouter } from 'expo-router';
 import { isAmbientPlaying, toggleAmbient } from '@/lib/ambient-engine';
 import { getSoul, SoulProfile } from '@/lib/soul';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Props {
   emoji?: string;
@@ -25,11 +26,16 @@ export default function ScreenTitle({ emoji, title, subtitle, showGear = false }
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const [musicPlaying, setMusicPlaying] = useState(false);
   const [mountedSoul, setMountedSoul] = useState<SoulProfile | null>(null);
+  const [showSettingsBadge, setShowSettingsBadge] = useState(false);
 
   useEffect(() => {
     // Sync music state on mount
     setMusicPlaying(isAmbientPlaying());
     getSoul().then(setMountedSoul);
+    // Check if user has ever visited settings
+    AsyncStorage.getItem('@settings_visited').then(v => {
+      if (!v) setShowSettingsBadge(true);
+    });
   }, []);
 
   useEffect(() => {
@@ -87,7 +93,12 @@ export default function ScreenTitle({ emoji, title, subtitle, showGear = false }
           {/* Settings gear */}
           <TouchableOpacity
             style={styles.gearButtonInline}
-            onPress={() => router.navigate('/settings')}
+            onPress={() => {
+              // Mark settings as visited — hides the badge permanently
+              AsyncStorage.setItem('@settings_visited', 'true');
+              setShowSettingsBadge(false);
+              router.navigate('/settings');
+            }}
             activeOpacity={0.6}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
@@ -96,6 +107,9 @@ export default function ScreenTitle({ emoji, title, subtitle, showGear = false }
               { opacity: pulseAnim }
             ]} />
             <Text style={[styles.gearIcon, { color: theme.textPrimary }]}>⚙</Text>
+            {showSettingsBadge && (
+              <View style={styles.settingsBadge} />
+            )}
             <Text style={[styles.gearLabel, { color: theme.textMuted }]}>Settings</Text>
           </TouchableOpacity>
         </View>
@@ -236,5 +250,15 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
     zIndex: 1,
+  },
+  settingsBadge: {
+    position: 'absolute',
+    top: 0,
+    right: -2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#ff3b30',
+    zIndex: 10,
   },
 });

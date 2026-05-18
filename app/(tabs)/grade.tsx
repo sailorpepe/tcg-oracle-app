@@ -16,6 +16,7 @@ import { useTheme } from '@/lib/ThemeContext';
 import { Spacing, FontSizes, BorderRadius } from '@/constants/Theme';
 import ScreenTitle from '@/components/ScreenTitle';
 import WallpaperBackground from '@/components/WallpaperBackground';
+import UNDSRSlab from '@/components/UNDSRSlab';
 import { analyzeCardImage } from '@/lib/inference/card-grader';
 import { identifyCard, CardIdentification } from '@/lib/inference/card-identifier';
 import { useIsFocused } from '@react-navigation/native';
@@ -511,71 +512,19 @@ export default function GradeScreen() {
               {/* UNDSR Slab Preview */}
               {avgScore > 0 && (() => {
                 const slabGrade = Math.min(10, Math.max(1, Math.round(avgScore * 2) / 2));
-                const tierConfig = slabGrade >= 9.5
-                  ? { name: 'PRISTINE', color: '#e0e7ff', accent: '#818cf8', border: '#6366f1', glow: 'rgba(99,102,241,0.3)' }
-                  : slabGrade >= 9.0
-                  ? { name: 'GEM MINT', color: '#fef3c7', accent: '#f59e0b', border: '#d97706', glow: 'rgba(245,158,11,0.3)' }
-                  : slabGrade >= 8.0
-                  ? { name: 'MINT', color: '#d1fae5', accent: '#10b981', border: '#059669', glow: 'rgba(16,185,129,0.3)' }
-                  : slabGrade >= 6.0
-                  ? { name: 'NEAR MINT', color: '#e0e7ff', accent: '#6b7280', border: '#4b5563', glow: 'rgba(107,114,128,0.2)' }
-                  : { name: 'STANDARD', color: '#f3f4f6', accent: '#9ca3af', border: '#6b7280', glow: 'rgba(156,163,175,0.15)' };
-
                 return (
-                  <View style={{
-                    marginTop: Spacing.lg,
-                    borderRadius: 16,
-                    borderWidth: 2,
-                    borderColor: tierConfig.border,
-                    backgroundColor: tierConfig.color,
-                    padding: Spacing.lg,
-                    alignItems: 'center',
-                    shadowColor: tierConfig.accent,
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.3,
-                    shadowRadius: 12,
-                  }}>
-                    {/* UNDSR Header */}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                      <Text style={{ fontSize: 10, fontWeight: '800', color: tierConfig.accent, letterSpacing: 2, fontFamily: 'monospace' }}>
-                        UNDSR GRADING
-                      </Text>
-                    </View>
-                    {/* Grade Badge */}
-                    <View style={{
-                      backgroundColor: tierConfig.accent,
-                      borderRadius: 12,
-                      paddingVertical: 6,
-                      paddingHorizontal: 20,
-                      marginBottom: 6,
-                    }}>
-                      <Text style={{ fontSize: 22, fontWeight: '900', color: '#fff', fontFamily: 'monospace' }}>
-                        {slabGrade.toFixed(1)}
-                      </Text>
-                    </View>
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: tierConfig.accent, letterSpacing: 1.5, fontFamily: 'monospace' }}>
-                      {tierConfig.name}
-                    </Text>
-                    {/* Sub-grades row */}
-                    <View style={{ flexDirection: 'row', gap: 12, marginTop: 10 }}>
-                      {[
-                        { label: 'C', val: extractScore(centering) },
-                        { label: 'Co', val: extractScore(corners) },
-                        { label: 'E', val: extractScore(edges) },
-                        { label: 'S', val: extractScore(surface) },
-                      ].map(s => (
-                        <View key={s.label} style={{ alignItems: 'center' }}>
-                          <Text style={{ fontSize: 9, color: tierConfig.accent, fontWeight: '600', fontFamily: 'monospace' }}>{s.label}</Text>
-                          <Text style={{ fontSize: 13, fontWeight: '800', color: tierConfig.border, fontFamily: 'monospace' }}>{s.val.toFixed(1)}</Text>
-                        </View>
-                      ))}
-                    </View>
-                    {cardId ? (
-                      <Text style={{ fontSize: 10, color: tierConfig.accent, marginTop: 8, fontFamily: 'monospace', textAlign: 'center' }} numberOfLines={1}>
-                        {cardId}
-                      </Text>
-                    ) : null}
-                  </View>
+                  <UNDSRSlab
+                    grade={slabGrade}
+                    cardName={cardId || identifiedCard?.name || undefined}
+                    cardImageUri={capturedUri || undefined}
+                    subGrades={[
+                      { label: 'Centering', abbr: 'C', score: extractScore(centering) },
+                      { label: 'Corners', abbr: 'CO', score: extractScore(corners) },
+                      { label: 'Edges', abbr: 'E', score: extractScore(edges) },
+                      { label: 'Surface', abbr: 'S', score: extractScore(surface) },
+                    ]}
+                    theme={theme}
+                  />
                 );
               })()}
 

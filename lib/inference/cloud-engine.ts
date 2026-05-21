@@ -22,6 +22,8 @@ function validateOllamaEndpoint(url: string): boolean {
     // Block cloud metadata endpoints
     const blocked = ['169.254.169.254', 'metadata.google', '100.100.100.200', 'metadata.internal'];
     if (blocked.some(b => parsed.hostname.includes(b))) return false;
+    // Block decimal/integer IP addresses (e.g., 2852039166 = 169.254.169.254)
+    if (/^\d+$/.test(parsed.hostname)) return false;
     // Only allow standard ports
     const port = parseInt(parsed.port || '80');
     if (port < 1 || port > 65535) return false;
@@ -50,7 +52,7 @@ export async function saveActiveEngine(engineId: EngineId): Promise<void> {
 
 export async function getActiveEngine(): Promise<EngineId> {
   const stored = await AsyncStorage.getItem(ENGINE_SELECTION_KEY);
-  return (stored as EngineId) || 'local';
+  return (stored as EngineId) || 'groq';
 }
 
 // ─── Engine Configs ───
@@ -360,6 +362,7 @@ export async function verifyKey(engineId: EngineId, key: string): Promise<{ vali
           'Content-Type': 'application/json',
           'x-api-key': key,
           'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
           model: 'claude-3-5-haiku-20241022',

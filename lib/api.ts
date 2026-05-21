@@ -164,7 +164,7 @@ export async function getPokemonSetCards(setId: string): Promise<Card[]> {
   let hasMore = true;
 
   while (hasMore) {
-    const resp = await fetch(`${POKEMON_API}/cards?q=set.id:${setId}&pageSize=250&page=${page}&orderBy=number`, {
+    const resp = await fetch(`${POKEMON_API}/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&page=${page}&orderBy=number`, {
       headers: { 'Accept': 'application/json' },
     });
     if (!resp.ok) throw new Error(`Pokémon Cards API: ${resp.status}`);

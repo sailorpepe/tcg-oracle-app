@@ -54,3 +54,5 @@ src-tauri/target/
 *.mp4
 *.dmg
 x-post.html
+linux-out/
+Dockerfile.linux-build

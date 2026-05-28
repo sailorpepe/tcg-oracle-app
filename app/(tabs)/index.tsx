@@ -17,7 +17,7 @@ import {
 import { openUrl } from '@/lib/open-url';
 import { useTheme } from '@/lib/ThemeContext';
 import { Spacing, FontSizes, BorderRadius } from '@/constants/Theme';
-import { GAMES, getSets, getSetCards, searchCards, GameId, GameInfo, CardSet, Card, fetchPriceHistory, HistoricalPrice, getCardPurchaseUrl } from '@/lib/api';
+import { GAMES, getSets, getSetCards, searchCards, GameId, GameInfo, CardSet, Card, fetchPriceHistory, HistoricalPrice, getCardPurchaseUrl, fetchLitVMPrices, LitVMProduct } from '@/lib/api';
 import { addToVault } from '@/lib/vault';
 import ScreenTitle from '@/components/ScreenTitle';
 import { decryptEbayCredentials, hasSecureCredentials } from '@/lib/crypto-utils';
@@ -68,6 +68,12 @@ export default function IndexScreen() {
   const [compsLoading, setCompsLoading] = useState(false);
   const [compsError, setCompsError] = useState('');
   const [historicalPrices, setHistoricalPrices] = useState<HistoricalPrice[]>([]);
+
+  // LitVM on-chain oracle data
+  const [litvmPrices, setLitvmPrices] = useState<LitVMProduct[]>([]);
+
+  // Load LitVM on-chain prices on mount (fire-and-forget, silent fail)
+  useEffect(() => { fetchLitVMPrices().then(setLitvmPrices).catch(() => {}); }, []);
 
   // Soul — for ambient particles
   const [mountedSoul, setMountedSoul] = useState<SoulProfile | null>(null);
@@ -437,9 +443,16 @@ export default function IndexScreen() {
         )}
         <View style={styles.resultInfo}>
           <Text style={[styles.resultName, { color: theme.textPrimary }]} numberOfLines={2}>{item.name}</Text>
-          <Text style={[styles.resultMeta, { color: theme.textMuted }]}>
-            {item.game === 'ebay' ? '🛒' : gameInfo?.emoji} {item.set}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Text style={[styles.resultMeta, { color: theme.textMuted, marginTop: 0 }]}>
+              {item.game === 'ebay' ? '🛒' : gameInfo?.emoji} {item.set}
+            </Text>
+            {litvmPrices.find(p => item.name.toLowerCase().includes(p.name.toLowerCase().split(' ').slice(0, 2).join(' '))) && (
+              <Text style={{ fontSize: 8, color: '#00dcff', fontWeight: '800', borderWidth: 1, borderColor: '#00dcff', borderRadius: 3, paddingHorizontal: 4, paddingVertical: 1, backgroundColor: 'rgba(0, 220, 255, 0.1)' }}>
+                ⛓️ ON-CHAIN
+              </Text>
+            )}
+          </View>
           {item.rarity ? (
             <Text style={[styles.resultRarity, { color: theme.textSecondary }]}>{item.rarity}</Text>
           ) : null}
@@ -665,6 +678,30 @@ export default function IndexScreen() {
                 <Text style={{ fontSize: 8, color: theme.accent, marginTop: 1 }}>TAP TO VIEW LISTING →</Text>
               </TouchableOpacity>
             )}
+
+            {/* ⛓️ LitVM On-Chain Oracle Panel */}
+            {(() => {
+              const litvmMatch = litvmPrices.find(p => selectedCard.name.toLowerCase().includes(p.name.toLowerCase().split(' ').slice(0, 2).join(' ')));
+              if (!litvmMatch) return null;
+              return (
+                <TouchableOpacity
+                  style={{ marginTop: Spacing.sm, backgroundColor: 'rgba(0, 220, 255, 0.08)', padding: Spacing.md, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: 'rgba(0, 220, 255, 0.3)', width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+                  onPress={() => openUrl('https://liteforge.explorer.caldera.xyz/address/0xA79C6b3922949fcaBb518f56f0B6e68Ca7115771')}
+                  activeOpacity={0.7}
+                >
+                  <View>
+                    <Text style={{ fontSize: 9, fontWeight: '800', color: '#00dcff', letterSpacing: 1 }}>⛓️ VERIFIED ON LITVM</Text>
+                    <Text style={{ fontSize: 8, color: '#00dcff', marginTop: 4, opacity: 0.7 }}>
+                      Updated {Math.floor((Date.now() - litvmMatch.timestamp) / 60000)}m ago
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 18, fontWeight: '800', color: '#00dcff' }}>${litvmMatch.marketPrice.toFixed(2)}</Text>
+                    <Text style={{ fontSize: 8, color: '#00dcff', marginTop: 2, opacity: 0.8 }}>TAP FOR EXPLORER ↗</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })()}
             
             {/* Action Buttons */}
             <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm }}>

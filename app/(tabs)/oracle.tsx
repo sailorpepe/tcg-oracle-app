@@ -31,6 +31,7 @@ import SoulParticlesLite from '@/components/SoulParticlesLite';
 import { speakAny, hasXAIKey, XAIVoice, XAI_VOICES, SentenceStreamTTS } from '@/lib/xai-voice';
 import { saveSession, loadSession, archiveSession, clearSession } from '@/lib/chat-memory';
 import { getAllTracked } from '@/lib/oracle-memory';
+import { fetchLitVMPrices } from '@/lib/api';
 import { getPredictionStats, gradePredictions, logPrediction } from '@/lib/prediction-ledger';
 import { updateSoul as updateAmbientSoul } from '@/lib/ambient-engine';
 import SoulAvatar from '@/components/SoulAvatar';
@@ -307,13 +308,23 @@ export default function OracleScreen() {
         messageCount: messageCountRef.current,
       };
       const systemPrompt = await buildSystemPrompt(mountedSoul, sessionMeta);
+      // Inject LitVM on-chain context if card is tracked
+      let augmentedContent = content;
+      try {
+        const litvmData = await fetchLitVMPrices();
+        const matchedCard = litvmData.find(p => content.toLowerCase().includes(p.name.toLowerCase().split(' ').slice(0, 2).join(' ')));
+        if (matchedCard) {
+          augmentedContent += `\n\n[SYSTEM ORACLE DATA: The LitVM LiteForge on-chain oracle verifies Market Price at $${matchedCard.marketPrice.toFixed(2)} and Low Price at $${matchedCard.lowPrice.toFixed(2)}. This is immutable blockchain data. Incorporate this naturally as a Web3-verified price comparison.]`;
+        }
+      } catch { /* Silent fail, never block chat */ }
+
       const chatHistory: ChatMessage[] = [
         { role: 'system', content: systemPrompt },
         ...messages
           .slice(-10)
           .filter(m => !m.content.startsWith('⚠'))  // Don't feed error messages to the AI
           .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-        { role: 'user' as const, content },
+        { role: 'user' as const, content: augmentedContent },
       ];
 
       const engine = createCloudEngine(activeEngineId);

@@ -936,3 +936,65 @@ function mergeHistories(
   return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// ─── LITVM LITEFORGE ON-CHAIN ORACLE ────────────────────────────────────
+// Read-only. No wallet. No keys. Just public RPC calls to the smart contract.
+
+import { createPublicClient, http, parseAbi } from 'viem';
+
+export interface LitVMProduct {
+  productId: string;
+  categoryId: number;
+  name: string;
+  marketPrice: number;
+  lowPrice: number;
+  timestamp: number;
+}
+
+const LITVM_RPC = 'https://liteforge.rpc.caldera.xyz/http';
+const ORACLE_ADDRESS = '0xA79C6b3922949fcaBb518f56f0B6e68Ca7115771' as const;
+
+let litvmCache: { data: LitVMProduct[]; timestamp: number } | null = null;
+
+const litvmClient = createPublicClient({
+  chain: {
+    id: 4441,
+    name: 'LitVM LiteForge',
+    nativeCurrency: { name: 'zkLTC', symbol: 'zkLTC', decimals: 18 },
+    rpcUrls: { default: { http: [LITVM_RPC] }, public: { http: [LITVM_RPC] } },
+  } as any,
+  transport: http(LITVM_RPC),
+});
+
+const oracleAbi = parseAbi([
+  'function getAllProducts() external view returns (tuple(uint256 productId, uint256 categoryId, string name, uint256 marketPrice, uint256 lowPrice, uint256 timestamp)[])',
+  'function productCount() external view returns (uint256)',
+]);
+
+export async function fetchLitVMPrices(): Promise<LitVMProduct[]> {
+  // 60-second in-memory cache to prevent RPC spam
+  if (litvmCache && Date.now() - litvmCache.timestamp < 60000) return litvmCache.data;
+
+  try {
+    const data = await litvmClient.readContract({
+      address: ORACLE_ADDRESS,
+      abi: oracleAbi,
+      functionName: 'getAllProducts',
+    }) as any[];
+
+    const products: LitVMProduct[] = data.map(p => ({
+      productId: p.productId.toString(),
+      categoryId: Number(p.categoryId),
+      name: p.name,
+      marketPrice: Number(p.marketPrice) / 100, // Contract stores in cents (USD * 100)
+      lowPrice: Number(p.lowPrice) / 100,
+      timestamp: Number(p.timestamp) * 1000,    // Convert to JS milliseconds
+    }));
+
+    litvmCache = { data: products, timestamp: Date.now() };
+    return products;
+  } catch (error) {
+    console.error('[LitVM] Failed to fetch on-chain prices:', error);
+    return litvmCache?.data || [];
+  }
+}
+

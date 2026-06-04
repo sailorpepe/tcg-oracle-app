@@ -1,16 +1,64 @@
+<div align="center">
+
+![TCG Oracle Banner](assets/banner.png)
+
 # TCG Oracle
 
-Cross-platform market intelligence and AI-powered card grading for Pokémon, Magic: The Gathering, Yu-Gi-Oh!, One Piece, and Lorcana trading cards.
+**Cross-platform market intelligence and AI-powered card grading for trading cards.**
 
-Built with React Native (Expo) + Tauri. Runs on macOS, Windows, Linux, iOS, Android, and Web. Zero telemetry — all data stays on your device.
+Pokémon · Magic: The Gathering · Yu-Gi-Oh! · One Piece · Lorcana
 
-<p align="center">
-  <img src="docs/index-tab.png" width="250" alt="Index — cross-system card search" />
-  &nbsp;&nbsp;
-  <img src="docs/oracle-tab.png" width="250" alt="Oracle — AI chat with market context" />
-  &nbsp;&nbsp;
-  <img src="docs/settings-tab.png" width="250" alt="Settings — themes, engines, legal" />
-</p>
+[![Tauri v2](https://img.shields.io/badge/Tauri-v2-blue?style=flat-square&logo=tauri)](https://tauri.app)
+[![React Native](https://img.shields.io/badge/React_Native-Expo_54-61DAFB?style=flat-square&logo=react)](https://reactnative.dev)
+[![Expo](https://img.shields.io/badge/Expo-SDK_54-000020?style=flat-square&logo=expo)](https://expo.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)](https://typescriptlang.org)
+[![License: BSL-1.1](https://img.shields.io/badge/License-BSL_1.1-orange?style=flat-square)](LICENSE)
+
+[Website](https://the-undesirables.com) · [Releases](https://github.com/sailorpepe/tcg-oracle-app/releases) · [𝕏](https://x.com/undesirables_ai)
+
+</div>
+
+---
+
+<div align="center">
+
+<img src="docs/index-tab.png" width="250" alt="Index — cross-system card search" />
+&nbsp;&nbsp;
+<img src="docs/oracle-tab.png" width="250" alt="Oracle — AI chat with market context" />
+&nbsp;&nbsp;
+<img src="docs/settings-tab.png" width="250" alt="Settings — themes, engines, legal" />
+
+</div>
+
+---
+
+## Table of Contents
+
+- [Why Use This?](#why-use-this)
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [AI Engines](#ai-engines)
+- [Data Sources](#data-sources)
+- [Security](#security)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Links](#links)
+- [License & Commercial Use](#-license--commercial-use)
+
+---
+
+## Why Use This?
+
+Most TCG pricing tools are cloud-locked, ad-heavy, or require paid subscriptions. TCG Oracle is different:
+
+- **100% local** — Zero telemetry, no analytics, no phone-home. All data stays on your device.
+- **Truly cross-platform** — Runs on macOS, Windows, Linux, iOS, Android, and Web from a single codebase.
+- **AI-powered grading** — Drop a photo of any card and get predicted PSA/BGS grades using your own AI engine.
+- **Live market data** — Real-time eBay comps with outlier trimming and fair market value calculation, no API keys required.
+- **Bring Your Own Key** — Use Ollama (free, local), Groq (free tier), or Anthropic (Claude) for AI features. No vendor lock-in.
+- **Built by collectors** — The CL Value algorithm mirrors real card shop pricing methodology.
+
+---
 
 ## Features
 
@@ -31,6 +79,8 @@ Personal card watchlist stored entirely on-device. Track your collection's estim
 
 ### ⚙️ Settings
 Five visual themes (Midnight, Ember, Frost, Undesirables, Light). Custom wallpaper with animated border effects. Engine configuration, eBay integration, and legal links.
+
+---
 
 ## Quick Start
 
@@ -62,6 +112,8 @@ cd src-tauri && cargo tauri build
 
 Pre-built installers are available on the [Releases](https://github.com/sailorpepe/tcg-oracle-app/releases) page.
 
+---
+
 ## AI Engines
 
 TCG Oracle uses a **Bring Your Own Key** model for AI features (Oracle chat and card grading).
@@ -74,6 +126,8 @@ TCG Oracle uses a **Bring Your Own Key** model for AI features (Oracle chat and 
 
 Keys are stored in AsyncStorage on-device (web: localStorage). They never leave your device.
 
+---
+
 ## Data Sources
 
 All market data comes from free, public APIs:
@@ -84,6 +138,8 @@ All market data comes from free, public APIs:
 - **One Piece TCG API** — Community maintained
 - **Lorcana** — Community API
 - **eBay Browse API** — Live market comps (built-in, no setup needed)
+
+---
 
 ## Security
 
@@ -99,6 +155,8 @@ This app was hardened following a professional security audit. Key protections:
 - **Vault Size Cap** — 500-card limit prevents startup crash from unbounded storage growth
 - **Zero Telemetry** — No analytics, no tracking, no phone-home. Period.
 
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -111,6 +169,8 @@ This app was hardened following a professional security audit. Key protections:
 | AI | Ollama / Groq / Anthropic (BYOK) |
 | Market Data | eBay Browse API (server proxy + cache) |
 | Styling | React Native StyleSheet |
+
+---
 
 ## Project Structure
 
@@ -143,30 +203,27 @@ tcg-oracle-app/
 │   └── WallpaperBackground.tsx
 ├── constants/
 │   └── Themes.ts            # 5 visual themes
+├── assets/                  # Banner image
 ├── src-tauri/               # Tauri desktop wrapper
 └── docs/                    # Screenshots
 ```
 
-## License
-
-[Business Source License 1.1](LICENSE) (BUSL-1.1)
-
-**Licensor:** The Undesirables LLC  
-**Change Date:** 2030-04-27  
-**Change License:** Apache License, Version 2.0
-
-Non-commercial personal use is permitted. See the [LICENSE](LICENSE) file for full terms.
+---
 
 ## Links
 
 - **Website**: [the-undesirables.com](https://the-undesirables.com)
 - **MCP Server**: [undesirables-mcp-server](https://github.com/sailorpepe/undesirables-mcp-server)
 - **PyPI**: [undesirables-mcp-server](https://pypi.org/project/undesirables-mcp-server/)
-- **X**: [@undesirable_ai](https://x.com/undesirable_ai)
+- **X**: [@undesirables_ai](https://x.com/undesirables_ai)
+
+---
 
 ## 📝 License & Commercial Use
 
 This project is licensed under the **[Business Source License 1.1 (BUSL-1.1)](LICENSE)**.
+
+**Licensor:** The Undesirables LLC · **Change Date:** 2030-04-27 · **Change License:** Apache License, Version 2.0
 
 We build in public and support the developer ecosystem — but we also protect the infrastructure and IP of **The Undesirables LLC**.
 
@@ -194,3 +251,13 @@ Building a commercial product? Want guaranteed API access or white-label integra
 📧 **theundesirables7@gmail.com** · 🐦 **[@undesirables_ai](https://x.com/undesirables_ai)**
 
 © 2026 The Undesirables LLC
+
+---
+
+<div align="center">
+
+⭐ **If this project helped you, please star this repo** — it helps others find it.
+
+[Report Bug](../../issues) · [Request Feature](../../issues)
+
+</div>

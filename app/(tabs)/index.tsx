@@ -205,8 +205,8 @@ export default function IndexScreen() {
         setTrendingCards(mixed.slice(0, 8));
       } else {
         const result = await searchCards(sig.term, sig.game);
-        // Filter: must have image AND price (cards with broken/dark images usually lack prices too)
-        setTrendingCards(result.cards.filter(c => c.imageUrl && c.price != null).slice(0, 8));
+        // Filter: must have image. Price is optional (Star Wars, Digimon don't have pricing APIs)
+        setTrendingCards(result.cards.filter(c => c.imageUrl).slice(0, 8));
       }
     } catch (e) {
       console.warn("Trending fetch failed", e);
@@ -218,9 +218,13 @@ export default function IndexScreen() {
   // When a filter pill is tapped, reload trending AND set the search filter
   const handleFilterChange = (filter: GameId | 'all' | 'ebay') => {
     setActiveFilter(filter);
-    // Only reload trending if we're on the home view
+    // Clear stale results on filter switch
+    setResults([]);
+    setTotalResults(0);
     if (viewMode === 'home') {
       loadTrending(filter);
+    } else if (viewMode === 'results' && query.trim().length >= 3) {
+      setTimeout(() => doSearch(), 50);
     }
   };
 
@@ -295,7 +299,7 @@ export default function IndexScreen() {
       }
     }, 700);
     return () => clearTimeout(handler);
-  }, [query]);
+  }, [query, activeFilter]);
 
   const handleSaveToVault = async (card: Card) => {
     const { added, alreadyExists } = await addToVault(card);

@@ -1015,7 +1015,7 @@ const styles = StyleSheet.create({
   chatContainer: { flex: 1 },
 
   // Chat
-  chatList: { paddingBottom: 8 },
+  chatList: { paddingBottom: 80 },
   chatHeader: { paddingBottom: 8 },
 
   // Messages
@@ -1092,6 +1092,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: Spacing.xxxl,
     paddingHorizontal: Spacing.xl,
+    paddingBottom: 120,
   },
   emptyIcon: { fontSize: 48, opacity: 0.3, marginBottom: Spacing.md },
   emptyTitle: {
@@ -1290,6 +1291,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.lg,
     width: '100%',
     paddingHorizontal: Spacing.md,
+    paddingBottom: 100,
   },
   watchlistTitle: {
     fontSize: FontSizes.xs,

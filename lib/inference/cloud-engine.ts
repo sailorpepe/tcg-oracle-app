@@ -255,10 +255,11 @@ async function ollamaStream(
       model,
       messages: processedMessages,
       stream: true,
+      ...(isQwen ? { think: false } : {}),
       options: {
         temperature: options?.temperature ?? 0.6,
-        num_predict: options?.maxTokens ?? 512,  // shorter = faster
-        num_ctx: 2048,                            // smaller context = faster
+        num_predict: options?.maxTokens ?? 1024,  // enough for thinking + response
+        num_ctx: 4096,
         top_p: 0.9,
         repeat_penalty: 1.1,
       },
@@ -287,24 +288,32 @@ async function ollamaStream(
       if (!line.trim()) continue;
       try {
         const parsed = JSON.parse(line);
-        if (parsed.done) return;
-        if (!parsed.message?.content) continue;
+        let content = parsed.message?.content || '';
 
-        let content = parsed.message.content;
-
-        // Filter out any <think> blocks that leak through
-        if (content.includes('<think>')) { insideThinkBlock = true; continue; }
+        // Strip <think>...</think> blocks (may span multiple chunks)
         if (insideThinkBlock) {
           if (content.includes('</think>')) {
             insideThinkBlock = false;
             content = content.split('</think>').pop() || '';
-            if (!content.trim()) continue;
           } else {
-            continue; // skip thinking content
+            content = ''; // still inside think block
+          }
+        }
+        // Check for think blocks starting in this chunk
+        while (content.includes('<think>')) {
+          const before = content.split('<think>')[0];
+          if (before.trim()) onToken(before);
+          const afterThink = content.split('<think>').slice(1).join('<think>');
+          if (afterThink.includes('</think>')) {
+            content = afterThink.split('</think>').slice(1).join('</think>');
+          } else {
+            insideThinkBlock = true;
+            content = '';
           }
         }
 
         if (content) onToken(content);
+        if (parsed.done) return;
       } catch {
         // Skip malformed chunks
       }

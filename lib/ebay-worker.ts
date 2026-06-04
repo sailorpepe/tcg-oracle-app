@@ -77,12 +77,19 @@ export async function executeEbayFetch(
         const words = q.trim().split(/\s+/);
         const trimmedQuery = words.length > 8 ? words.slice(0, 8).join(' ') : q;
         
+        // Don't exclude "booster" if the user is specifically searching for booster boxes/packs
+        const qLower = q.toLowerCase();
+        const isProductSearch = qLower.includes('booster') || qLower.includes('etb') || qLower.includes('box') || qLower.includes('case') || qLower.includes('pack') || qLower.includes('display');
+        const negatives = isProductSearch
+            ? '-lot -bundle -repack'
+            : '-sealed -lot -bundle -repack -case -booster';
+
         if (setName && cardNumber) {
-            return `${trimmedQuery} "${setName}" ${cardNumber} -sealed -lot -bundle -repack -case -booster`;
+            return `${trimmedQuery} "${setName}" ${cardNumber} ${negatives}`;
         } else if (setName) {
-            return `${trimmedQuery} "${setName}" -sealed -lot -bundle -repack -case -booster`;
+            return `${trimmedQuery} "${setName}" ${negatives}`;
         }
-        return `${trimmedQuery} -sealed -lot -bundle -repack -case -booster`;
+        return `${trimmedQuery} ${negatives}`;
     };
 
     if (Platform.OS === 'web' && !isTauri()) {
@@ -361,12 +368,18 @@ export async function fetchEbaySoldItems(
 
         // Build query with negative keywords
         let searchQuery = query.trim();
+        const qLower = searchQuery.toLowerCase();
+        const isProductSearch = qLower.includes('booster') || qLower.includes('etb') || qLower.includes('box') || qLower.includes('case') || qLower.includes('pack') || qLower.includes('display');
+        const negatives = isProductSearch
+            ? '-lot -bundle -repack'
+            : '-sealed -lot -bundle -repack -case -booster';
+
         if (setName && cardNumber) {
-            searchQuery = `${searchQuery} "${setName}" ${cardNumber} -sealed -lot -bundle -repack -case -booster`;
+            searchQuery = `${searchQuery} "${setName}" ${cardNumber} ${negatives}`;
         } else if (setName) {
-            searchQuery = `${searchQuery} "${setName}" -sealed -lot -bundle -repack -case -booster`;
+            searchQuery = `${searchQuery} "${setName}" ${negatives}`;
         } else {
-            searchQuery = `${searchQuery} -sealed -lot -bundle -repack -case -booster`;
+            searchQuery = `${searchQuery} ${negatives}`;
         }
 
         // Truncate overly long queries

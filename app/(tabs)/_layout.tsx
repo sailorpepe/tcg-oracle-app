@@ -88,9 +88,8 @@ export default function TabLayout() {
         headerShown: false,
         tabBarActiveTintColor: theme.tabActive,
         tabBarInactiveTintColor: theme.tabInactive,
-        // Tauri WebKit doesn't reliably hide inactive screens via display:none.
-        // unmountOnBlur guarantees only the active tab is rendered.
-        unmountOnBlur: true,
+        // Force opaque background on each tab's content area so inactive tabs don't bleed through
+        sceneStyle: { backgroundColor: theme.background },
         lazy: true,
       } as any}
     >

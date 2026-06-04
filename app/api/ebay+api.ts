@@ -68,12 +68,19 @@ export async function POST(request: Request) {
     // ── Build Search Query ──
     let searchQuery = query;
     if (!isTrending) {
+      // Don't exclude "booster"/"case" when the user is searching for those products
+      const qLower = query.toLowerCase();
+      const isProductSearch = qLower.includes('booster') || qLower.includes('etb') || qLower.includes('box') || qLower.includes('case') || qLower.includes('pack') || qLower.includes('display');
+      const negatives = isProductSearch
+        ? '-lot -bundle -repack'
+        : '-sealed -lot -bundle -repack -case -booster';
+
       if (setName && cardNumber) {
-        searchQuery = `${query} "${setName}" ${cardNumber} -sealed -lot -bundle -repack -case -booster`;
+        searchQuery = `${query} "${setName}" ${cardNumber} ${negatives}`;
       } else if (setName) {
-        searchQuery = `${query} "${setName}" -sealed -lot -bundle -repack -case -booster`;
+        searchQuery = `${query} "${setName}" ${negatives}`;
       } else {
-        searchQuery = `${query} -sealed -lot -bundle -repack -case -booster`;
+        searchQuery = `${query} ${negatives}`;
       }
     }
 

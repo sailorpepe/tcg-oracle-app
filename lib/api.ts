@@ -937,9 +937,8 @@ function mergeHistories(
 }
 
 // ─── LITVM LITEFORGE ON-CHAIN ORACLE ────────────────────────────────────
-// Read-only. No wallet. No keys. Just public RPC calls to the smart contract.
-
-import { createPublicClient, http, parseAbi } from 'viem';
+// Fetches on-chain price data via the Vercel API proxy (same source as the live website).
+// The deployed contract uses getPrice()/getTrackedCount() — not getAllProducts().
 
 export interface LitVMProduct {
   productId: string;
@@ -947,47 +946,44 @@ export interface LitVMProduct {
   name: string;
   marketPrice: number;
   lowPrice: number;
+  midPrice: number;
   timestamp: number;
 }
 
-const LITVM_RPC = 'https://liteforge.rpc.caldera.xyz/http';
-const ORACLE_ADDRESS = '0xA79C6b3922949fcaBb518f56f0B6e68Ca7115771' as const;
-
 let litvmCache: { data: LitVMProduct[]; timestamp: number } | null = null;
 
-const litvmClient = createPublicClient({
-  chain: {
-    id: 4441,
-    name: 'LitVM LiteForge',
-    nativeCurrency: { name: 'zkLTC', symbol: 'zkLTC', decimals: 18 },
-    rpcUrls: { default: { http: [LITVM_RPC] }, public: { http: [LITVM_RPC] } },
-  } as any,
-  transport: http(LITVM_RPC),
-});
-
-const oracleAbi = parseAbi([
-  'function getAllProducts() external view returns (tuple(uint256 productId, uint256 categoryId, string name, uint256 marketPrice, uint256 lowPrice, uint256 timestamp)[])',
-  'function productCount() external view returns (uint256)',
-]);
-
 export async function fetchLitVMPrices(): Promise<LitVMProduct[]> {
-  // 60-second in-memory cache to prevent RPC spam
+  // 60-second in-memory cache to prevent API spam
   if (litvmCache && Date.now() - litvmCache.timestamp < 60000) return litvmCache.data;
 
   try {
-    const data = await litvmClient.readContract({
-      address: ORACLE_ADDRESS,
-      abi: oracleAbi,
-      functionName: 'getAllProducts',
-    }) as any[];
+    // Try local proxy first (avoids CORS), fall back to direct
+    let resp: Response | null = null;
+    try {
+      resp = await fetch('/api/litvm', {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch { resp = null; }
 
-    const products: LitVMProduct[] = data.map(p => ({
-      productId: p.productId.toString(),
-      categoryId: Number(p.categoryId),
+    if (!resp || !resp.ok) {
+      resp = await fetch('https://the-undesirables.vercel.app/api/litvm', {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+    }
+
+    if (!resp.ok) throw new Error(`LitVM API: ${resp.status}`);
+    const data = await resp.json();
+
+    const products: LitVMProduct[] = (data.cards || []).map((p: any) => ({
+      productId: String(p.productId),
+      categoryId: p.categoryId,
       name: p.name,
-      marketPrice: Number(p.marketPrice) / 100, // Contract stores in cents (USD * 100)
-      lowPrice: Number(p.lowPrice) / 100,
-      timestamp: Number(p.timestamp) * 1000,    // Convert to JS milliseconds
+      marketPrice: p.marketPrice,
+      lowPrice: p.lowPrice,
+      midPrice: p.midPrice || 0,
+      timestamp: p.timestamp * 1000, // Convert to JS milliseconds
     }));
 
     litvmCache = { data: products, timestamp: Date.now() };
@@ -997,4 +993,3 @@ export async function fetchLitVMPrices(): Promise<LitVMProduct[]> {
     return litvmCache?.data || [];
   }
 }
-

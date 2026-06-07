@@ -465,9 +465,13 @@ export default function OracleScreen() {
   };
 
   // ─── Scroll to bottom ──────────────────────
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
     if (messages.length > 0 || streamingContent) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: !streamingContent });
+      }, 300); // Throttled to prevent layout jank
     }
   }, [messages, streamingContent]);
 

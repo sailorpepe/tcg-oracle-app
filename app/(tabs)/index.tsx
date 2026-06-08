@@ -942,20 +942,36 @@ export default function IndexScreen() {
         <ScreenTitle title="Index" subtitle="Cross-system market telemetry" showGear />
         {/* Verify On-Chain Banner */}
         <TouchableOpacity 
-          style={{ marginHorizontal: Spacing.lg, marginBottom: Spacing.lg, padding: Spacing.md, backgroundColor: 'rgba(0, 220, 255, 0.08)', borderRadius: BorderRadius.md, borderWidth: 1, borderColor: 'rgba(0, 220, 255, 0.3)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm }}
-          activeOpacity={0.7}
-          onPress={() => {
-            Alert.alert(
-              "Data Integrity Verified",
-              "Every single day, the pricing data for over 276,000 actively priced cards is cryptographically hashed into a single Merkle Root and pushed to our Merkle Price Oracle smart contract on the LitVM LiteForge testnet.",
-              [
-                { text: "Close", style: "cancel" },
-                { text: "View Explorer", onPress: () => handleWeb3Link('https://liteforge.explorer.caldera.xyz/address/0x96B124f50156589274ADF8F674509374752170Cd') }
-              ]
-            );
+          style={{ 
+            marginHorizontal: Spacing.lg, 
+            marginBottom: Spacing.lg, 
+            padding: Spacing.md, 
+            backgroundColor: 'rgba(0, 220, 255, 0.1)', 
+            borderRadius: BorderRadius.md, 
+            borderWidth: 1, 
+            borderColor: 'rgba(0, 220, 255, 0.4)', 
+            flexDirection: 'row', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            shadowColor: '#00dcff',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.2,
+            shadowRadius: 8
           }}
+          activeOpacity={0.7}
+          onPress={() => handleWeb3Link('https://liteforge.explorer.caldera.xyz/address/0x96B124f50156589274ADF8F674509374752170Cd')}
         >
-          <Text style={{ fontSize: 14, fontWeight: '800', color: '#00dcff', letterSpacing: 1 }}>⛓️ VERIFY ON-CHAIN</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: '#00dcff', letterSpacing: 1, marginBottom: 4 }}>
+              ⛓️ VERIFY ON-CHAIN
+            </Text>
+            <Text style={{ fontSize: 10, color: 'rgba(0, 220, 255, 0.7)', lineHeight: 14 }}>
+              276,000+ cards trustlessly verified daily via Merkle Root
+            </Text>
+          </View>
+          <View style={{ backgroundColor: 'rgba(0, 220, 255, 0.2)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: BorderRadius.sm, marginLeft: Spacing.md }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: '#00dcff' }}>EXPLORER ↗</Text>
+          </View>
         </TouchableOpacity>
 
         {/* eBay works out of the box via server proxy — no setup needed */}

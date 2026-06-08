@@ -13,6 +13,7 @@ import {
   Animated,
   Platform,
   Share,
+  Alert,
 } from 'react-native';
 import { openUrl } from '@/lib/open-url';
 import { useTheme } from '@/lib/ThemeContext';
@@ -939,6 +940,24 @@ export default function IndexScreen() {
     return (
       <View style={styles.header}>
         <ScreenTitle title="Index" subtitle="Cross-system market telemetry" showGear />
+        {/* Verify On-Chain Banner */}
+        <TouchableOpacity 
+          style={{ marginHorizontal: Spacing.lg, marginBottom: Spacing.lg, padding: Spacing.md, backgroundColor: 'rgba(0, 220, 255, 0.08)', borderRadius: BorderRadius.md, borderWidth: 1, borderColor: 'rgba(0, 220, 255, 0.3)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm }}
+          activeOpacity={0.7}
+          onPress={() => {
+            Alert.alert(
+              "Data Integrity Verified",
+              "Every single day, the pricing data for over 276,000 actively priced cards is cryptographically hashed into a single Merkle Root and pushed to our Merkle Price Oracle smart contract on the LitVM LiteForge testnet.",
+              [
+                { text: "Close", style: "cancel" },
+                { text: "View Explorer", onPress: () => handleWeb3Link('https://liteforge.explorer.caldera.xyz/address/0x96B124f50156589274ADF8F674509374752170Cd') }
+              ]
+            );
+          }}
+        >
+          <Text style={{ fontSize: 14, fontWeight: '800', color: '#00dcff', letterSpacing: 1 }}>⛓️ VERIFY ON-CHAIN</Text>
+        </TouchableOpacity>
+
         {/* eBay works out of the box via server proxy — no setup needed */}
 
         {/* Trending */}

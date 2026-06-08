@@ -649,7 +649,7 @@ export default function GradeScreen() {
                     <TouchableOpacity
                       style={[styles.retakeBtn, { backgroundColor: 'rgba(0, 220, 255, 0.1)', borderColor: '#00dcff' }]}
                       onPress={() => {
-                        if (typeof window !== 'undefined') window.open(`https://liteforge.explorer.caldera.xyz/tx/${notarizedTx}`, '_blank');
+                        import('@/lib/open-url').then(({ openUrl }) => openUrl(`https://liteforge.explorer.caldera.xyz/tx/${notarizedTx}`).catch(console.error));
                       }}
                     >
                       <Text style={[styles.retakeBtnText, { color: '#00dcff' }]}>

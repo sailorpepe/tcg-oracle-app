@@ -117,17 +117,18 @@ Pre-built installers are available on the [Releases](https://github.com/sailorpe
 
 ---
 
-## AI Engines
+## AI Engines & Bring Your Own Key (BYOK)
 
-TCG Oracle uses a **Bring Your Own Key** model for AI features (Oracle chat and card grading).
+TCG Oracle uses a **Bring Your Own Key (BYOK)** model for its AI features (Oracle chat and card grading). This ensures absolute privacy, zero vendor lock-in, and allows you to run the app completely for free if you have the hardware.
 
 | Engine | Type | Setup |
 |--------|------|-------|
-| **Ollama** | Local (free) | Install [Ollama](https://ollama.com), pull a model, point the app at `http://localhost:11434` |
-| **Groq** | Cloud (free tier) | Get a key at [console.groq.com](https://console.groq.com) |
-| **Anthropic** | Cloud (paid) | Get a key at [console.anthropic.com](https://console.anthropic.com) |
+| **Ollama** | Local (Free & Private) | Install [Ollama](https://ollama.com). Run `ollama run qwen2.5vl:7b` (for grading) and `ollama run llama3` (for chat). Point the app at `http://localhost:11434` in Settings. |
+| **Groq** | Cloud (Free Tier) | Get a lightning-fast API key at [console.groq.com](https://console.groq.com) |
+| **Anthropic** | Cloud (Paid) | Get a Claude API key at [console.anthropic.com](https://console.anthropic.com) |
 
-Keys are stored in AsyncStorage on-device (web: localStorage). They never leave your device.
+**Why BYOK?**
+We believe your data is yours. By allowing you to connect your own local Ollama instance, you can perform complex visual AI card grading entirely on your own machine. Your card images and portfolio data never leave your device, and you don't have to pay expensive monthly subscription fees to centralized pricing apps. API Keys are stored safely in on-device storage and are never sent to our servers.
 
 ---
 

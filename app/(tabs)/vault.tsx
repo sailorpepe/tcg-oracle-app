@@ -283,7 +283,16 @@ export default function VaultScreen() {
           {item.notarizedTx && (
             <TouchableOpacity 
               style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#39FF1420', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginTop: 4, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#39FF1440' }}
-              onPress={(e) => { e.stopPropagation(); if (Platform.OS === 'web') window.open(`https://liteforge.explorer.caldera.xyz/tx/${item.notarizedTx}`, '_blank'); else Linking.openURL(`https://liteforge.explorer.caldera.xyz/tx/${item.notarizedTx}`); }}
+              onPress={(e) => { 
+                e.stopPropagation(); 
+                if (Platform.OS === 'web' && typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+                  import('@/lib/open-url').then(({ openUrl }) => openUrl(`https://liteforge.explorer.caldera.xyz/tx/${item.notarizedTx}`).catch(console.error));
+                } else if (Platform.OS === 'web') {
+                  window.open(`https://liteforge.explorer.caldera.xyz/tx/${item.notarizedTx}`, '_blank');
+                } else {
+                  Linking.openURL(`https://liteforge.explorer.caldera.xyz/tx/${item.notarizedTx}`); 
+                }
+              }}
             >
               <Text style={{ fontSize: 10, color: '#39FF14', fontWeight: 'bold' }}>✅ ON-CHAIN</Text>
             </TouchableOpacity>

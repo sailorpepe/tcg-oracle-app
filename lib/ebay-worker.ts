@@ -109,7 +109,7 @@ export async function executeEbayFetch(
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
-                signal: AbortSignal.timeout(5000),
+                
             });
         } catch {
             response = null;
@@ -121,7 +121,7 @@ export async function executeEbayFetch(
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
-                    signal: AbortSignal.timeout(10000),
+                    
                 });
             } catch {
                 if (appId && secret) {
@@ -396,7 +396,7 @@ export async function fetchEbaySoldItems(
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
-                    signal: AbortSignal.timeout(12000),
+                    
                 });
             } catch { response = null; }
 
@@ -407,7 +407,7 @@ export async function fetchEbaySoldItems(
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload),
-                        signal: AbortSignal.timeout(15000),
+                        
                     });
                 } catch { response = null; }
             }

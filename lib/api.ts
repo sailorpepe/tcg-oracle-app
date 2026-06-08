@@ -47,6 +47,7 @@ export interface Card {
   type?: string;
   number?: string;
   purchaseUrl?: string;
+  notarizedTx?: string;
 }
 
 // TCGPlayer game category slugs for URL construction
@@ -786,7 +787,7 @@ async function fetchMacMiniHistory(
 
     const resp = await fetch(`${HISTORY_API}?${params}`, {
       headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(8000),
+      
     });
 
     if (!resp.ok) return [];
@@ -826,7 +827,7 @@ async function fetchMacMiniHistory(
           `${HISTORY_API}?product_id=${firstResult.product_id}&days=${days}`,
           {
             headers: { 'Accept': 'application/json' },
-            signal: AbortSignal.timeout(5000),
+            
           }
         );
         if (detailResp.ok) {
@@ -957,21 +958,10 @@ export async function fetchLitVMPrices(): Promise<LitVMProduct[]> {
   if (litvmCache && Date.now() - litvmCache.timestamp < 60000) return litvmCache.data;
 
   try {
-    // Try local proxy first (avoids CORS), fall back to direct
-    let resp: Response | null = null;
-    try {
-      resp = await fetch('/api/litvm', {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(5000),
-      });
-    } catch { resp = null; }
-
-    if (!resp || !resp.ok) {
-      resp = await fetch('https://the-undesirables.vercel.app/api/litvm', {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(10000),
-      });
-    }
+    let resp = await fetch('https://the-undesirables.vercel.app/api/litvm', {
+      headers: { 'Accept': 'application/json' },
+      
+    });
 
     if (!resp.ok) throw new Error(`LitVM API: ${resp.status}`);
     const data = await resp.json();

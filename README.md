@@ -68,14 +68,17 @@ Real-time card search across five TCG ecosystems with live eBay market comps. Fi
 ### 🛒 eBay Market Comps
 Built-in eBay integration pulls live listings, separates graded from raw, trims outliers, and calculates fair market value — no API keys or setup required. Power users can optionally connect their own eBay developer keys for dedicated access.
 
-### 📸 Scan
+### 📸 AI Grading & LitVM Notarization
 AI-powered card grading on web and mobile. Drag-and-drop a card image (JPG, PNG, HEIC) or use your phone's camera for instant condition analysis — centering, corners, edges, surface — with predicted PSA/BGS grades. Powered by your BYOK AI engine (Anthropic, Groq, or Ollama).
+
+**LitecoinVM (LitVM) Integration:**
+Once a card is graded, users can connect their wallet and sign a transaction to **notarize** the grading report immutably on the LitVM LiteForge testnet. This locks the card's data, its AI-predicted grade, and its image hash into our Graded Price Oracle smart contract (`0x36C02dA8a0983159322a80FFE9F24b1acfF8B570`), creating a verifiable, trustless receipt of physical assets for DeFi applications (like LendVault loans).
 
 ### 💎 Oracle
 AI chat grounded in your Vault portfolio. Ask about card values, meta shifts, grading ROI, or investment timing. Supports Ollama (local), Groq (free tier), and Anthropic (Claude).
 
-### 🏦 Vault
-Personal card watchlist stored entirely on-device. Track your collection's estimated value. The Oracle reads your Vault to give personalized market advice.
+### 🏦 Vault & Portfolio Tracking
+Personal card watchlist stored entirely on-device. Track your collection's estimated value. Cards that have been notarized on-chain will display a shiny `✅ ON-CHAIN` badge, which links directly to the LitVM block explorer for instant verification. The Oracle reads your Vault to give personalized market advice.
 
 ### ⚙️ Settings
 Five visual themes (Midnight, Ember, Frost, Undesirables, Light). Custom wallpaper with animated border effects. Engine configuration, eBay integration, and legal links.

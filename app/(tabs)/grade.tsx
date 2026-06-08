@@ -19,12 +19,31 @@ import WallpaperBackground from '@/components/WallpaperBackground';
 import UNDSRSlab from '@/components/UNDSRSlab';
 import { analyzeCardImage } from '@/lib/inference/card-grader';
 import { identifyCard, CardIdentification } from '@/lib/inference/card-identifier';
+import { addToVault } from '@/lib/vault';
+import { Card, GameId } from '@/lib/api';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { hasXAIKey, speakText, buildGradeNarration, XAIVoice, DEFAULT_VOICE } from '@/lib/xai-voice';
 import SoulParticlesLite from '@/components/SoulParticlesLite';
 import { SoulProfile, getSoul } from '@/lib/soul';
+import { useWeb3 } from '@/lib/web3';
+import WalletConnectModal from '@/components/WalletConnectModal';
+
+const GRADE_NOTARY_ABI = [
+  {
+    "inputs": [
+      { "internalType": "string", "name": "cardName", "type": "string" },
+      { "internalType": "string", "name": "predictedGrade", "type": "string" },
+      { "internalType": "string", "name": "imageHash", "type": "string" }
+    ],
+    "name": "notarizeGrade",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+] as const;
+const GRADE_NOTARY_ADDRESS = "0x36C02dA8a0983159322a80FFE9F24b1acfF8B570";
 
 // File extension allowlist for drag-and-drop (browsers may not set MIME for HEIC/HEIF)
 const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.bmp', '.gif', '.avif'];
@@ -42,6 +61,11 @@ export default function GradeScreen() {
   const isWeb = Platform.OS === 'web';
   const router = useRouter();
   
+  const { isConnected, address } = useWeb3();
+  const [isNotarizing, setIsNotarizing] = useState(false);
+  const [wcModalVisible, setWcModalVisible] = useState(false);
+  const [notarizedTx, setNotarizedTx] = useState<string | null>(null);
+
   const [permission, requestPermission] = useCameraPermissions();
 
   const [cameraReady, setCameraReady] = useState(false);
@@ -178,32 +202,80 @@ export default function GradeScreen() {
     setIdentifyLoading(false);
   };
 
-  /** Navigate to Index tab with search query pre-filled */
-  const navigateToSearch = (cardName: string) => {
-    // Use global event to pass search query across tabs
-    if (typeof window !== 'undefined') {
-      (window as any).__TCG_SCAN_SEARCH__ = cardName;
+  /** Helper to launch eBay in the native browser */
+  const openEbaySearch = (query: string) => {
+    const encodedQuery = encodeURIComponent(query);
+    const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodedQuery}`;
+    if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('launch_web3_browser', { url: ebayUrl }).then((opened) => {
+          if (!opened) {
+            import('@/lib/open-url').then(({ openUrl }) => openUrl(ebayUrl).catch(console.error));
+          }
+        }).catch(() => {
+          import('@/lib/open-url').then(({ openUrl }) => openUrl(ebayUrl).catch(console.error));
+        });
+      });
+    } else {
+      import('@/lib/open-url').then(({ openUrl }) => openUrl(ebayUrl).catch(console.error));
     }
-    router.push('/(tabs)' as any);
   };
 
-  /** Run fast card identification and navigate to search */
-  const handleIdentifyAndSearch = async () => {
+  /** Save graded/identified card to local vault */
+  const handleSaveToVault = async () => {
     if (!capturedUri) return;
     setIdentifyLoading(true);
     try {
-      const result = await identifyCard(capturedUri);
-      if (result?.name) {
-        setIdentifiedCard(result);
-        navigateToSearch(result.name);
-      } else {
-        setAnalysisError('Could not identify card. Try a clearer photo.');
+      let finalName = cardId || identifiedCard?.name;
+      let finalSet = identifiedCard?.set || 'Graded Slab';
+      
+      if (!finalName) {
+        const result = await identifyCard(capturedUri);
+        if (result?.name) {
+          setIdentifiedCard(result);
+          finalName = result.name;
+          finalSet = result.set || 'Graded Slab';
+        } else {
+          setAnalysisError('Could not identify card. Try a clearer photo.');
+          setIdentifyLoading(false);
+          return;
+        }
+      }
+
+      let gameType: GameId = 'pokemon';
+      const nLower = finalName.toLowerCase();
+      if (nLower.includes('magic') || nLower.includes('mtg')) gameType = 'magic';
+      if (nLower.includes('yu-gi-oh') || nLower.includes('yugioh')) gameType = 'yugioh';
+      if (nLower.includes('one piece')) gameType = 'onepiece';
+      if (nLower.includes('lorcana')) gameType = 'lorcana';
+      if (nLower.includes('star wars')) gameType = 'starwars';
+      if (nLower.includes('digimon')) gameType = 'digimon';
+      
+      const vaultCard: Card = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: finalName,
+        imageUrl: capturedUri,
+        imageUrlSmall: capturedUri,
+        set: finalSet,
+        game: gameType,
+        notarizedTx: notarizedTx || undefined,
+      };
+      
+      const { added, alreadyExists } = await addToVault(vaultCard);
+      if (added) {
+        if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+          setTimeout(() => router.push('/vault'), 100);
+        } else {
+          router.push('/vault');
+        }
+      } else if (alreadyExists) {
+        alert('This card is already in your Vault!');
       }
     } catch (e: any) {
       if (e.message === 'NO_ENGINE') {
         setAnalysisError('NO_ENGINE');
       } else {
-        setAnalysisError(e.message || 'Identification failed');
+        alert('Failed to save to Vault: ' + e.message);
       }
     }
     setIdentifyLoading(false);
@@ -420,7 +492,7 @@ export default function GradeScreen() {
               {gameId ? <Text style={{ fontSize: 11, color: theme.textMuted, fontFamily: 'monospace', letterSpacing: 0.5 }}>{gameId}</Text> : null}
               <TouchableOpacity
                 style={{ marginTop: 8, backgroundColor: theme.accent + '20', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14, alignSelf: 'flex-start', borderWidth: 1, borderColor: theme.accent }}
-                onPress={() => navigateToSearch(cardId)}
+                onPress={() => openEbaySearch(cardId)}
                 activeOpacity={0.7}
               >
                 <Text style={{ fontSize: 12, fontWeight: '800', color: theme.accent, fontFamily: 'monospace' }}>⚡ SEARCH THIS CARD</Text>
@@ -569,6 +641,79 @@ export default function GradeScreen() {
                   </Text>
                 </TouchableOpacity>
               )}
+
+              {/* Notarize on LitVM button */}
+              {cardId && grade !== '—' && (
+                <View style={{ marginTop: Spacing.md }}>
+                  {notarizedTx ? (
+                    <TouchableOpacity
+                      style={[styles.retakeBtn, { backgroundColor: 'rgba(0, 220, 255, 0.1)', borderColor: '#00dcff' }]}
+                      onPress={() => {
+                        if (typeof window !== 'undefined') window.open(`https://liteforge.explorer.caldera.xyz/tx/${notarizedTx}`, '_blank');
+                      }}
+                    >
+                      <Text style={[styles.retakeBtnText, { color: '#00dcff' }]}>
+                        ⛓️ VIEW CERTIFICATE ON LITVM
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.retakeBtn, {
+                        backgroundColor: isNotarizing ? 'transparent' : 'rgba(0, 220, 255, 0.15)',
+                        borderColor: '#00dcff',
+                        opacity: isNotarizing ? 0.6 : 1,
+                      }]}
+                      onPress={async () => {
+                        if (!isConnected) {
+                          setWcModalVisible(true);
+                          return;
+                        }
+                        try {
+                          setIsNotarizing(true);
+                          
+                          // Encode the payload for the Browser Bridge
+                          const payload = {
+                            action: 'notarizeGrade',
+                            args: [cardId, grade, "ipfs://QmPlaceholderCardHash"]
+                          };
+                          const jsonStr = JSON.stringify(payload);
+                          const utf8Str = encodeURIComponent(jsonStr).replace(/%([0-9A-F]{2})/g, (m, p1) => String.fromCharCode(parseInt(p1, 16)));
+                          const b64Payload = btoa(utf8Str);
+                          const bridgeUrl = `https://the-undesirables.com/bridge?action=sign&payload=${b64Payload}`;
+                          
+                          if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                             import('@/lib/open-url').then(({ openUrl }) => openUrl(bridgeUrl).catch(console.error));
+                             
+                             // Listen for the return deep link from _layout.tsx
+                             const onSignSuccess = (e: any) => {
+                               if (e.detail && e.detail.txHash) {
+                                  setNotarizedTx(e.detail.txHash);
+                               }
+                               setIsNotarizing(false);
+                               window.removeEventListener('tcgoracle-sign', onSignSuccess);
+                             };
+                             window.addEventListener('tcgoracle-sign', onSignSuccess);
+                          }
+                        } catch (e: any) {
+                          console.warn('Notarization failed:', e);
+                          alert('Failed to notarize grade: ' + e.message);
+                          setIsNotarizing(false);
+                        }
+                      }}
+                      disabled={isNotarizing}
+                      activeOpacity={0.7}
+                    >
+                      {isNotarizing ? (
+                        <ActivityIndicator size="small" color="#00dcff" />
+                      ) : (
+                        <Text style={[styles.retakeBtnText, { color: '#00dcff' }]}>
+                          {isConnected ? '⛓️ NOTARIZE GRADE ON-CHAIN' : '🔗 CONNECT WALLET TO NOTARIZE'}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </>
           ) : (
             /* Fallback: raw text while streaming or if parsing fails */
@@ -676,14 +821,14 @@ export default function GradeScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.retakeBtn, { backgroundColor: theme.accent, borderColor: theme.accent, flex: 1, opacity: identifyLoading ? 0.6 : 1 }]}
-                  onPress={handleIdentifyAndSearch}
+                  onPress={handleSaveToVault}
                   disabled={identifyLoading}
                   activeOpacity={0.7}
                 >
                   {identifyLoading ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <Text style={[styles.retakeBtnText, { color: '#fff' }]}>⚡ IDENTIFY & SEARCH</Text>
+                    <Text style={[styles.retakeBtnText, { color: '#fff' }]}>📥 SAVE TO VAULT</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -774,18 +919,19 @@ export default function GradeScreen() {
                   { emoji: '◈', title: 'Vision AI', desc: 'Multimodal card analysis' },
                   { emoji: '▷', title: 'Streaming', desc: 'Results appear in real-time' },
                   { emoji: '◎', title: 'PSA · BGS · CGC', desc: 'Multi-scale prediction' },
-                  { emoji: '⬡', title: 'BYOK Powered', desc: 'Your key, your choice' },
+                  { emoji: '🔗', title: isConnected ? 'Wallet Connected' : 'Connect Wallet', desc: isConnected ? 'Ready for LitVM Testnet' : 'Tap to connect WalletConnect', action: () => { if (!isConnected) setWcModalVisible(true); } },
                 ].map((f, i) => (
-                  <View key={i} style={[styles.featureCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <TouchableOpacity key={i} style={[styles.featureCard, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={f.action} activeOpacity={f.action ? 0.7 : 1}>
                     <Text style={styles.featureEmoji}>{f.emoji}</Text>
                     <Text style={[styles.featureTitle, { color: theme.textPrimary }]}>{f.title}</Text>
                     <Text style={[styles.featureDesc, { color: theme.textMuted }]}>{f.desc}</Text>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
             </View>
           )}
         </ScrollView>
+        <WalletConnectModal visible={wcModalVisible} onClose={() => setWcModalVisible(false)} />
       </SafeAreaView>
     );
   }
@@ -813,14 +959,14 @@ export default function GradeScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.retakeBtn, { backgroundColor: theme.accent, borderColor: theme.accent, flex: 1, opacity: identifyLoading ? 0.6 : 1 }]}
-              onPress={handleIdentifyAndSearch}
+              onPress={handleSaveToVault}
               disabled={identifyLoading}
               activeOpacity={0.7}
             >
               {identifyLoading ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={[styles.retakeBtnText, { color: '#fff' }]}>⚡ IDENTIFY & SEARCH</Text>
+                <Text style={[styles.retakeBtnText, { color: '#fff' }]}>📥 SAVE TO VAULT</Text>
               )}
             </TouchableOpacity>
           </View>

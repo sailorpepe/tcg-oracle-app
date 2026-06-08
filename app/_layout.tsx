@@ -42,6 +42,7 @@ import 'react-native-reanimated';
 
 import { ThemeProvider } from '@/lib/ThemeContext';
 import LicenseAgreement, { hasAcceptedEULA } from '@/components/LicenseAgreement';
+import { Web3Provider } from '@/lib/web3';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -102,20 +103,49 @@ function RootLayoutNav() {
     hasAcceptedEULA().then(setEulaAccepted);
   }, []);
 
+  useEffect(() => {
+    // If we're running inside Tauri desktop app, hook up the deep link listener
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+      import('@tauri-apps/plugin-deep-link').then(({ onOpenUrl }) => {
+        onOpenUrl((urls) => {
+          if (urls && urls.length > 0) {
+            console.log('Tauri Deep Link Received:', urls[0]);
+            // You can parse the URL here and dispatch state updates
+            // Example: tcgoracle://connect?address=0x123
+            const urlObj = new URL(urls[0]);
+            if (urlObj.hostname === 'connect') {
+               const address = urlObj.searchParams.get('address');
+               if (address) {
+                 window.dispatchEvent(new CustomEvent('tcgoracle-connect', { detail: { address } }));
+               }
+            } else if (urlObj.hostname === 'sign') {
+               const txHash = urlObj.searchParams.get('txHash');
+               if (txHash) {
+                 window.dispatchEvent(new CustomEvent('tcgoracle-sign', { detail: { txHash } }));
+               }
+            }
+          }
+        }).catch(console.error);
+      }).catch(err => console.log('Tauri deep link plugin not loaded', err));
+    }
+  }, []);
+
   // Don't render anything until we've checked EULA status
   if (eulaAccepted === null) return null;
 
   return (
-    <ThemeProvider>
-      <NavThemeProvider value={DarkTheme}>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="settings" options={{ headerShown: false, presentation: 'card' }} />
-        </Stack>
-        {!eulaAccepted && (
-          <LicenseAgreement onAccept={() => setEulaAccepted(true)} />
-        )}
-      </NavThemeProvider>
-    </ThemeProvider>
+    <Web3Provider>
+      <ThemeProvider>
+        <NavThemeProvider value={DarkTheme}>
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="settings" options={{ headerShown: false, presentation: 'card' }} />
+          </Stack>
+          {!eulaAccepted && (
+            <LicenseAgreement onAccept={() => setEulaAccepted(true)} />
+          )}
+        </NavThemeProvider>
+      </ThemeProvider>
+    </Web3Provider>
   );
 }

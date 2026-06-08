@@ -72,6 +72,21 @@ export default function IndexScreen() {
   // LitVM on-chain oracle data
   const [litvmPrices, setLitvmPrices] = useState<LitVMProduct[]>([]);
 
+  const handleWeb3Link = (url: string) => {
+    if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('launch_web3_browser', { url }).then((opened) => {
+          if (!opened) openUrl(url); // Fallback to OS default if no web3 browser
+        }).catch((e) => {
+          console.error(e);
+          openUrl(url); // Fallback on error
+        });
+      });
+    } else {
+      openUrl(url);
+    }
+  };
+
   // Load LitVM on-chain prices on mount (fire-and-forget, silent fail)
   useEffect(() => { fetchLitVMPrices().then(setLitvmPrices).catch(() => {}); }, []);
 
@@ -132,19 +147,55 @@ export default function IndexScreen() {
   useEffect(() => {
     if (typeof window !== 'undefined' && (window as any).__TCG_SCAN_SEARCH__) {
       const scanQuery = (window as any).__TCG_SCAN_SEARCH__ as string;
+      const scanGame = (window as any).__TCG_SCAN_GAME__ as string;
       delete (window as any).__TCG_SCAN_SEARCH__;
-      // Pre-fill the search bar and trigger search
+      delete (window as any).__TCG_SCAN_GAME__;
+
+      const isSportsOrOther = scanGame === 'sports' || scanGame === 'other';
+      const initialFilter = isSportsOrOther ? 'ebay' : 'all';
+
+      // Pre-fill the search bar and filter
       setQuery(scanQuery);
-      setActiveFilter('all');
+      setActiveFilter(initialFilter);
+
       // Small delay to let the tab mount
       setTimeout(() => {
         setSearchLoading(true);
         setSearched(true);
         setViewMode('results');
-        searchCards(scanQuery, undefined).then((data) => {
-          setResults(data.cards);
-          setTotalResults(data.total);
-        }).catch(() => {}).finally(() => setSearchLoading(false));
+
+        if (isSportsOrOther) {
+          // Route to eBay Browse API for Sports/Other cards
+          getBYOKCredentials().then(creds => {
+            return executeEbayFetch(creds?.appId, creds?.secret, scanQuery, false);
+          }).then(ebayData => {
+            if (ebayData && ebayData.itemSummaries) {
+              const ebayCards = ebayData.itemSummaries.map((item: any) => ({
+                id: item.itemId,
+                name: item.title,
+                imageUrl: item.image?.imageUrl || '',
+                imageUrlSmall: item.image?.imageUrl || '',
+                set: 'eBay',
+                price: parseFloat(item.price?.value || '0'),
+                priceSource: 'eBay',
+                game: 'ebay' as GameId,
+              }));
+              setResults(ebayCards);
+              setTotalResults(ebayCards.length);
+            } else {
+              setResults([]);
+              setTotalResults(0);
+            }
+          }).catch(() => {
+            showToast('Failed to fetch eBay data.');
+          }).finally(() => setSearchLoading(false));
+        } else {
+          // Standard TCGPlayer routing
+          searchCards(scanQuery, undefined).then((data) => {
+            setResults(data.cards);
+            setTotalResults(data.total);
+          }).catch(() => {}).finally(() => setSearchLoading(false));
+        }
       }, 100);
     }
   }, []);
@@ -668,7 +719,7 @@ export default function IndexScreen() {
                 style={styles.heroApiPriceRow}
                 onPress={() => {
                   const { url } = getCardPurchaseUrl(selectedCard);
-                  openUrl(url);
+                  handleWeb3Link(url);
                 }}
                 activeOpacity={0.7}
               >
@@ -690,7 +741,7 @@ export default function IndexScreen() {
               return (
                 <TouchableOpacity
                   style={{ marginTop: Spacing.sm, backgroundColor: 'rgba(0, 220, 255, 0.08)', padding: Spacing.md, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: 'rgba(0, 220, 255, 0.3)', width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
-                  onPress={() => openUrl('https://liteforge.explorer.caldera.xyz/address/0xA79C6b3922949fcaBb518f56f0B6e68Ca7115771')}
+                  onPress={() => handleWeb3Link('https://liteforge.explorer.caldera.xyz/address/0xA79C6b3922949fcaBb518f56f0B6e68Ca7115771')}
                   activeOpacity={0.7}
                 >
                   <View>
@@ -724,7 +775,7 @@ export default function IndexScreen() {
                   style={[styles.heroSaveBtn, { backgroundColor: theme.surface, borderColor: theme.accent, flex: 1 }]}
                   onPress={() => {
                     const { url } = getCardPurchaseUrl(selectedCard);
-                    openUrl(url);
+                    handleWeb3Link(url);
                   }}
                   activeOpacity={0.7}
                 >
@@ -843,7 +894,7 @@ export default function IndexScreen() {
                 style={[styles.ebayLinkBtn, { borderColor: theme.accent, backgroundColor: theme.accentMuted, flex: 1 }]}
                 onPress={() => {
                   const q = encodeURIComponent(selectedCard.name + (selectedCard.set ? ` ${selectedCard.set}` : ''));
-                  openUrl(`https://www.ebay.com/sch/i.html?_nkw=${q}&_sacat=0&LH_Sold=1&LH_Complete=1`);
+                  handleWeb3Link(`https://www.ebay.com/sch/i.html?_nkw=${q}&_sacat=0&LH_Sold=1&LH_Complete=1`);
                 }}
               >
                 <Text style={{ fontSize: 12, fontWeight: '700', color: theme.accent }}>◈ Sold on eBay</Text>
@@ -852,7 +903,7 @@ export default function IndexScreen() {
                 style={[styles.ebayLinkBtn, { borderColor: theme.border, backgroundColor: theme.surface, flex: 1 }]}
                 onPress={() => {
                   const q = encodeURIComponent(selectedCard.name + (selectedCard.set ? ` ${selectedCard.set}` : ''));
-                  openUrl(`https://www.ebay.com/sch/i.html?_nkw=${q}&_sacat=0`);
+                  handleWeb3Link(`https://www.ebay.com/sch/i.html?_nkw=${q}&_sacat=0`);
                 }}
               >
                 <Text style={{ fontSize: 12, fontWeight: '700', color: theme.textSecondary }}>◈ Active on eBay</Text>
@@ -912,6 +963,52 @@ export default function IndexScreen() {
             <Text style={[styles.emptyHint, { color: theme.textDim }]}>No trending data for this system</Text>
           )}
         </View>
+
+        {/* LitVM On-Chain Graded Cards */}
+        {litvmPrices && litvmPrices.length > 0 && (
+          <View style={styles.trendingSection}>
+            <Text style={[styles.sectionLabel, { color: '#00dcff' }]}>
+              ⛓️ LitVM Certified (ON-CHAIN)
+            </Text>
+            <FlatList
+              data={litvmPrices}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.trendCard, { backgroundColor: 'rgba(0, 220, 255, 0.05)', borderColor: 'rgba(0, 220, 255, 0.3)', width: 140 }]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    const mappedCard: Card = {
+                      id: String(item.productId),
+                      name: item.name,
+                      imageUrlSmall: `https://product-images.tcgplayer.com/fit-in/437x437/${item.productId}.jpg`,
+                      imageUrl: `https://product-images.tcgplayer.com/fit-in/437x437/${item.productId}.jpg`,
+                      price: item.marketPrice,
+                      priceSource: 'LitVM',
+                      game: 'pokemon',
+                    };
+                    openCardDetails(mappedCard);
+                  }}
+                >
+                  <Image 
+                    source={{ uri: `https://product-images.tcgplayer.com/fit-in/437x437/${item.productId}.jpg` }} 
+                    style={styles.trendImage} 
+                    resizeMode="contain" 
+                  />
+                  <Text style={[styles.trendName, { color: theme.textPrimary, flex: 1, minHeight: 32 }]} numberOfLines={2}>{item.name}</Text>
+                  <Text style={{ fontSize: 9, color: '#f87171', fontWeight: '800', marginTop: 8, paddingHorizontal: 4, paddingVertical: 2, borderWidth: 1, borderColor: '#f87171', borderRadius: 3 }}>
+                    PSA/BGS GRADED
+                  </Text>
+                  <Text style={[styles.trendPrice, { color: '#00dcff', fontSize: 16 }]}>${item.marketPrice.toFixed(2)}</Text>
+                  <Text style={{ fontSize: 7, color: '#00dcff', marginTop: 4, opacity: 0.7 }}>TAP FOR DETAILS ↗</Text>
+                </TouchableOpacity>
+              )}
+              keyExtractor={(item, i) => `litvm-${i}`}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.trendingList}
+            />
+          </View>
+        )}
 
         <Text style={[styles.sectionLabel, { color: theme.textMuted, marginTop: Spacing.xl }]}>◈ SYSTEMS</Text>
       </View>
@@ -1033,7 +1130,7 @@ export default function IndexScreen() {
                 if (item.itemId) {
                   // eBay Browse API returns "v1|178093008660|0" — extract the numeric ID
                   const numericId = item.itemId.includes('|') ? item.itemId.split('|')[1] : item.itemId;
-                  openUrl(`https://www.ebay.com/itm/${numericId}`);
+                  handleWeb3Link(`https://www.ebay.com/itm/${numericId}`);
                 }
               }}
               activeOpacity={0.6}

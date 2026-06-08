@@ -96,7 +96,7 @@ export function createCloudEngine(engineId: EngineId): InferenceEngine {
         const endpoint = await getEngineKey('ollama');
         if (!endpoint) return false;
         try {
-          const resp = await fetch(`${endpoint}/api/tags`, { signal: AbortSignal.timeout(3000) });
+          const resp = await fetch(`${endpoint}/api/tags`, {  });
           return resp.ok;
         } catch { return false; }
       }
@@ -221,7 +221,7 @@ async function ollamaStream(
       model = savedModel;
     } else {
       // Auto-detect the best installed model
-      const tagsResp = await fetch(`${endpoint}/api/tags`, { signal: AbortSignal.timeout(3000) });
+      const tagsResp = await fetch(`${endpoint}/api/tags`, {  });
       if (tagsResp.ok) {
         const tagsData = await tagsResp.json();
         const models: string[] = (tagsData.models || []).map((m: any) => m.name);
@@ -358,7 +358,7 @@ async function parseSSEStream(resp: Response, onData: (data: any) => void): Prom
 export async function verifyKey(engineId: EngineId, key: string): Promise<{ valid: boolean; error?: string }> {
   try {
     if (engineId === 'ollama') {
-      const resp = await fetch(`${key}/api/tags`, { signal: AbortSignal.timeout(5000) });
+      const resp = await fetch(`${key}/api/tags`, {  });
       if (resp.ok) return { valid: true };
       return { valid: false, error: 'Could not connect to Ollama server' };
     }
@@ -378,7 +378,7 @@ export async function verifyKey(engineId: EngineId, key: string): Promise<{ vali
           messages: [{ role: 'user', content: 'hi' }],
           max_tokens: 1,
         }),
-        signal: AbortSignal.timeout(8000),
+        
       });
       if (resp.ok || resp.status === 200) return { valid: true };
       if (resp.status === 401) return { valid: false, error: 'Invalid API key' };
@@ -392,7 +392,7 @@ export async function verifyKey(engineId: EngineId, key: string): Promise<{ vali
 
     const resp = await fetch(`${config.baseUrl}/models`, {
       headers: { 'Authorization': `Bearer ${key}` },
-      signal: AbortSignal.timeout(5000),
+      
     });
 
     if (resp.ok) return { valid: true };

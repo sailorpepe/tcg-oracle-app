@@ -280,6 +280,14 @@ export default function VaultScreen() {
           {item.rarity ? (
             <Text style={[styles.cardRarity, { color: theme.textSecondary }]}>{item.rarity}</Text>
           ) : null}
+          {item.notarizedTx && (
+            <TouchableOpacity 
+              style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#39FF1420', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginTop: 4, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#39FF1440' }}
+              onPress={(e) => { e.stopPropagation(); if (Platform.OS === 'web') window.open(`https://liteforge.explorer.caldera.xyz/tx/${item.notarizedTx}`, '_blank'); else Linking.openURL(`https://liteforge.explorer.caldera.xyz/tx/${item.notarizedTx}`); }}
+            >
+              <Text style={{ fontSize: 10, color: '#39FF14', fontWeight: 'bold' }}>✅ ON-CHAIN</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <View style={styles.cardPriceBox}>
           {item.price != null ? (

@@ -407,7 +407,7 @@ const OLLAMA_VISION_MODELS = ['qwen2.5vl', 'llava', 'bakllava', 'llama3.2-vision
 
 async function findOllamaVisionModel(endpoint: string): Promise<string | null> {
   try {
-    const resp = await fetch(`${endpoint}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    const resp = await fetch(`${endpoint}/api/tags`, {  });
     if (!resp.ok) return null;
     const data = await resp.json();
     const models: string[] = (data.models || []).map((m: any) => m.name?.toLowerCase() || '');

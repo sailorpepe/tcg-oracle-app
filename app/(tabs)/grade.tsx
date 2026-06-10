@@ -226,7 +226,9 @@ export default function GradeScreen() {
     if (!capturedUri) return;
     setIdentifyLoading(true);
     try {
-      let finalName = cardId || identifiedCard?.name;
+      const cardIdMatch = analysisText.match(/CARD:\s*(.+?)(?=\n[A-Z]+:|$)/s);
+      const parsedCardId = cardIdMatch ? cardIdMatch[1].trim() : '';
+      let finalName = parsedCardId || identifiedCard?.name;
       let finalSet = identifiedCard?.set || 'Graded Slab';
       
       if (!finalName) {

@@ -742,7 +742,7 @@ export default function IndexScreen() {
               return (
                 <TouchableOpacity
                   style={{ marginTop: Spacing.sm, backgroundColor: 'rgba(0, 220, 255, 0.08)', padding: Spacing.md, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: 'rgba(0, 220, 255, 0.3)', width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
-                  onPress={() => handleWeb3Link('https://liteforge.explorer.caldera.xyz/address/0xA79C6b3922949fcaBb518f56f0B6e68Ca7115771')}
+                  onPress={() => handleWeb3Link('https://liteforge.explorer.caldera.xyz/address/0x697bF6AE96fb05a47106abd012C39855A16a720E')}
                   activeOpacity={0.7}
                 >
                   <View>

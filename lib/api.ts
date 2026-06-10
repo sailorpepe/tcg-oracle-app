@@ -688,6 +688,7 @@ export async function searchDigimon(query: string): Promise<SearchResult> {
 export async function getDigimonSets(): Promise<CardSet[]> {
   // digimoncard.io doesn't have a dedicated sets endpoint.
   // We use a hardcoded list of the most popular booster sets.
+  // ⚠️ Last updated: June 10, 2026 — check digimoncard.io for new releases periodically.
   const knownSets = [
     { id: 'BT-01', name: 'BT-01: New Evolution', code: 'BT01' },
     { id: 'BT-02', name: 'BT-02: Ultimate Power', code: 'BT02' },

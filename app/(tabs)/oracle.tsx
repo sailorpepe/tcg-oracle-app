@@ -465,7 +465,7 @@ export default function OracleScreen() {
   };
 
   // ─── Scroll to bottom ──────────────────────
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (messages.length > 0 || streamingContent) {
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);

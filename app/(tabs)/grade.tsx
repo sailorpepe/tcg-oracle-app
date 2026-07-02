@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ForecastPanel from '@/components/ForecastPanel';
 import {
   View,
   Text,
@@ -601,6 +602,9 @@ export default function GradeScreen() {
                   />
                 );
               })()}
+
+              {/* 🔮 30-day risk forecast for the graded card (free oracle) */}
+              <ForecastPanel cardName={cardId || identifiedCard?.name || null} />
 
               {/* Disclaimer */}
               <Text style={{ fontSize: 10, color: theme.textDim, textAlign: 'center', marginTop: Spacing.sm, fontStyle: 'italic' }}>

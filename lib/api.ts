@@ -984,3 +984,73 @@ export async function fetchLitVMPrices(): Promise<LitVMProduct[]> {
     return litvmCache?.data || [];
   }
 }
+
+// ─── Conformal Risk Forecast (FREE oracle endpoint) ───────────
+// The honest default forecast: distribution-free, deterministic,
+// calibrated VaR + Safe-Hold / Momentum letter grades. No keys, no payment.
+
+export interface CardForecast {
+  productId: number;
+  name: string;
+  game: string;
+  price: number;
+  asOf: string;
+  regime: string;              // calm | normal | jumpy
+  movePct: number;             // expected 30-day move %
+  probUp: number;              // 0..1
+  band90Pct: number;           // 90% band half-width %
+  var95Pct: number;            // calibrated 95% VaR %
+  safeHold: string;            // A+..F — downside / capital preservation
+  momentum: string;            // A+..F, or "NA" on a drift spike (no-signal)
+  plainEnglish: string;
+}
+
+const ORACLE_BASE = 'https://oracle.the-undesirables.com';
+const forecastCache = new Map<string, { data: CardForecast | null; ts: number }>();
+
+/** Resolve a card name via the oracle's free search, then fetch its conformal
+ *  forecast. Returns null silently when the card isn't covered — callers just
+ *  hide the panel. Cached 10 min per name. */
+export async function fetchCardForecast(cardName: string): Promise<CardForecast | null> {
+  const key = cardName.trim().toLowerCase();
+  const hit = forecastCache.get(key);
+  if (hit && Date.now() - hit.ts < 600000) return hit.data;
+
+  try {
+    const sr = await fetch(`${ORACLE_BASE}/api/v1/search?query=${encodeURIComponent(cardName)}&limit=1`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!sr.ok) throw new Error(`search ${sr.status}`);
+    const sj = await sr.json();
+    const first = sj?.data?.results?.[0] ?? sj?.results?.[0];
+    if (!first?.product_id) { forecastCache.set(key, { data: null, ts: Date.now() }); return null; }
+
+    const fr = await fetch(`${ORACLE_BASE}/api/v1/forecast/${first.product_id}`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!fr.ok) { forecastCache.set(key, { data: null, ts: Date.now() }); return null; }
+    const f = await fr.json();
+    if (f?.price == null) { forecastCache.set(key, { data: null, ts: Date.now() }); return null; }
+
+    const data: CardForecast = {
+      productId: first.product_id,
+      name: f.name || first.name,
+      game: f.game || '',
+      price: f.price,
+      asOf: f.as_of || '',
+      regime: f.regime || '',
+      movePct: f.move_pct ?? 0,
+      probUp: f.prob_up ?? 0.5,
+      band90Pct: f.band90_pct ?? 0,
+      var95Pct: f.var95_pct ?? 0,
+      safeHold: f.safe_hold || '—',
+      momentum: f.momentum || '—',
+      plainEnglish: f.plain_english || '',
+    };
+    forecastCache.set(key, { data, ts: Date.now() });
+    return data;
+  } catch (error) {
+    console.error('[Forecast] fetch failed:', error);
+    return null;
+  }
+}

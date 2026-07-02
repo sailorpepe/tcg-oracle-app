@@ -17,7 +17,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.theundesirables.tcgoracle",
       "infoPlist": {
-        "NSCameraUsageDescription": "Allow TCG Oracle to access your camera to scan and grade trading cards"
+        "NSCameraUsageDescription": "Allow TCG Oracle to access your camera to scan and grade trading cards",
+        "NSPhotoLibraryUsageDescription": "Allow TCG Oracle to access your photo library so you can grade cards from existing photos"
       }
     },
     "web": {

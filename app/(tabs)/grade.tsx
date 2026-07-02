@@ -648,8 +648,9 @@ export default function GradeScreen() {
                 </TouchableOpacity>
               )}
 
-              {/* Notarize on LitVM button */}
-              {cardId && grade !== '—' && (
+              {/* Notarize on LitVM button — hidden on iOS (App Store crypto rules: no
+                  wallet-signed on-chain writes in the iOS build; desktop/web/Android keep it) */}
+              {Platform.OS !== 'ios' && cardId && grade !== '—' && (
                 <View style={{ marginTop: Spacing.md }}>
                   {notarizedTx ? (
                     <TouchableOpacity
@@ -937,7 +938,7 @@ export default function GradeScreen() {
             </View>
           )}
         </ScrollView>
-        <WalletConnectModal visible={wcModalVisible} onClose={() => setWcModalVisible(false)} />
+        {Platform.OS !== 'ios' && <WalletConnectModal visible={wcModalVisible} onClose={() => setWcModalVisible(false)} />}
       </SafeAreaView>
     );
   }

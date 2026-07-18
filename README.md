@@ -134,7 +134,7 @@ We believe your data is yours. By allowing you to connect your own local Ollama 
 
 ## Data Sources & On-Chain Verification
 
-Our massive database tracks over 433,000 products across 13 different trading card games. All baseline market data comes from free, public APIs:
+Our massive database tracks over 446,000 products across 25+ trading card games. All baseline market data comes from free, public APIs:
 
 - **Pokémon TCG API** — pokemontcg.io
 - **Scryfall** — Magic: The Gathering
@@ -144,7 +144,7 @@ Our massive database tracks over 433,000 products across 13 different trading ca
 - **eBay Browse API** — Live market comps (built-in, no setup needed)
 
 **Immutable On-Chain Verification:**
-Every single day, the pricing data for over 276,000 actively priced cards is cryptographically hashed into a single Merkle Root and pushed to our **Merkle Price Oracle** smart contract (`0x96B124f50156589274ADF8F674509374752170Cd`) on the LitVM LiteForge testnet. This provides a decentralized, trustless verification layer for DeFi lending protocols to verify the exact market value of physical trading cards.
+Every hour, the pricing data for over 284,000 actively priced cards is cryptographically hashed into a single Merkle Root and pushed to our **Merkle Price Oracle** smart contract (`0x96B124f50156589274ADF8F674509374752170Cd`) on the LitVM LiteForge testnet. This provides a decentralized, trustless verification layer for DeFi lending protocols to verify the exact market value of physical trading cards.
 
 ---
 

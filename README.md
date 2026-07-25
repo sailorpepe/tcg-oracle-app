@@ -4,6 +4,15 @@
 
 # TCG Oracle
 
+## 🔌 Connect over MCP — one URL, no install
+
+```
+https://mcp.the-undesirables.com
+```
+
+Paste into any MCP client (Claude, Cursor, ChatGPT) — free card search & forecasts, paid calls via x402.
+
+
 **Cross-platform market intelligence and AI-powered card grading for trading cards.**
 
 Pokémon · Magic: The Gathering · Yu-Gi-Oh! · One Piece · Lorcana

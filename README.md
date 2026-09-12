@@ -264,7 +264,7 @@ On **June 1, 2030** (or 4 years after the first public release of each version),
 
 Building a commercial product? Want guaranteed API access or white-label integration? Contact us:
 
-📧 **theundesirables7@gmail.com** · 🐦 **[@undesirables_ai](https://x.com/undesirables_ai)**
+📧 **oracle@the-undesirables.com** · 🐦 **[@undesirables_ai](https://x.com/undesirables_ai)**
 
 © 2026 The Undesirables LLC
 
